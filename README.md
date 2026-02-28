@@ -10,4 +10,8 @@ This project implements a deep learning model that classifies musculoskeletal X-
 - Fusing image-level features with learnable weighting
 - Producing a patient/study-level prediction from multiple images
 
+## Citation
+
+[MURA: Large Dataset for Abnormality Detection in Musculoskeletal Radiographs](https://arxiv.org/abs/1712.06957) (Rajpurkar et al., 2017)
+
 ### Work in progress
