@@ -4,30 +4,7 @@ from typing import List
 
 
 class ProgressiveUnfreezer:
-    """
-    Unfreezes frozen layer groups one at a time at val loss plateau
-
-    Args:
-        optimizer
-        layer_groups    : list of nn.Module or lists of nn.Parameter, ordered last-layer-first
-        lr_scale        : newly unfrozen group gets lr * lr_scale
-        patience        : how many epochs of no improvement before unfreezing
-        min_delta       : minimum improvement to reset the patience counter
-        verbose         : print a message when a group is unfrozen
-
-    Usage:
-        Build groups ordered from deepest → shallowest
-        groups = [
-            backbone.layer4,
-            backbone.layer3,
-            backbone.layer2,
-            backbone.layer1,
-        ]
-        unfreezer = ProgressiveUnfreezer(optimizer, groups, lr_scale=0.1, patience=3)
-
-        Inside training loop, after evaluate():
-        unfreezer.step(val_loss)
-    """
+    """Unfreezes layer groups progressively based on a monitored metric."""
 
     def __init__(
         self,
@@ -36,39 +13,34 @@ class ProgressiveUnfreezer:
         lr_scale: float = 0.1,
         patience: int = 3,
         min_delta: float = 1e-3,
+        mode: str = "min",  # "min" for val_loss, "max" for kappa/accuracy
         verbose: bool = True,
     ):
         self.optimizer = optimizer
         self.lr_scale = lr_scale
         self.patience = patience
         self.min_delta = min_delta
+        self.mode = mode
         self.verbose = verbose
 
-        # accept nn.Module, list of modules, or list of parameters
         self.groups = [self._to_params(g) for g in layer_groups]
         self.n_groups = len(self.groups)
-        self.next_idx = 0 
+        self.next_idx = 0
 
-        self._best_loss = float("inf")
-        self._wait = 0 # epochs since last improvement
+        self._best_val = float("inf") if mode == "min" else -float("inf")
+        self._wait = 0
 
-        # skip groups that are already unfrozen
         while self.next_idx < self.n_groups and self._group_is_unfrozen(self.next_idx):
             self.next_idx += 1
 
         if verbose:
-            frozen = sum(1 for i in range(self.next_idx, self.n_groups))
-            print(f"[Unfreezer] {frozen} layer group(s) queued for progressive unfreezing.")
+            frozen = self.n_groups - self.next_idx
+            print(f"[Unfreezer] {frozen} group(s) queued for progressive unfreezing.")
 
-            
-    def step(self, val_loss: float) -> bool:
-        """
-        Call once per epoch after validation.
-        Returns True if a group was unfrozen, False otherwise.
-        """
-        improved = val_loss < self._best_loss - self.min_delta
+    def step(self, metric: float) -> bool:
+        improved = (metric < self._best_val - self.min_delta) if self.mode == "min" else (metric > self._best_val + self.min_delta)
         if improved:
-            self._best_loss = val_loss
+            self._best_val = metric
             self._wait = 0
             return False
 
@@ -76,19 +48,13 @@ class ProgressiveUnfreezer:
         if self._wait >= self.patience:
             self._wait = 0
             return self._unfreeze_next()
-
         return False
 
     def all_unfrozen(self) -> bool:
-        """True when every group has been unfrozen."""
         return self.next_idx >= self.n_groups
 
     def status(self) -> str:
-        return (
-            f"[Unfreezer] {self.next_idx}/{self.n_groups} groups unfrozen | "
-            f"plateau patience: {self._wait}/{self.patience} | "
-            f"best_loss: {self._best_loss:.4f}"
-        )
+        return f"[Unfreezer] {self.next_idx}/{self.n_groups} groups unfrozen | wait: {self._wait}/{self.patience} | best_val: {self._best_val:.4f}"
 
     def _unfreeze_next(self) -> bool:
         if self.next_idx >= self.n_groups:
@@ -100,18 +66,12 @@ class ProgressiveUnfreezer:
         for p in params:
             p.requires_grad = True
 
-        # Add the newly unfrozen params as a new optimizer param group 
-        # scaling down learning rate to not blast pretrained weights
         base_lr = self.optimizer.param_groups[0]["lr"]
-        new_lr = base_lr * self.lr_scale
-        self.optimizer.add_param_group({"params": params, "lr": new_lr})
+        self.optimizer.add_param_group({"params": params, "lr": base_lr * self.lr_scale})
 
         if self.verbose:
             n_params = sum(p.numel() for p in params)
-            print(
-                f"[Unfreezer] Unfroze group {self.next_idx + 1}/{self.n_groups} "
-                f"({n_params:,} params) → lr={new_lr:.2e}"
-            )
+            print(f"[Unfreezer] Unfroze group {self.next_idx+1}/{self.n_groups} ({n_params:,} params) → lr={base_lr*self.lr_scale:.2e}")
 
         self.next_idx += 1
         return True
@@ -121,22 +81,16 @@ class ProgressiveUnfreezer:
 
     @staticmethod
     def _to_params(group) -> list:
-        """Normalize a group into a flat list of nn.Parameters."""
-        if isinstance(group, nn.Module):
-            return list(group.parameters())
+        if isinstance(group, nn.Module): return list(group.parameters())
         if isinstance(group, (list, tuple)):
             params = []
-            for item in group:
-                if isinstance(item, nn.Module):
-                    params.extend(item.parameters())
-                elif isinstance(item, nn.Parameter):
-                    params.append(item)
-                else:
-                    raise TypeError(f"Unexpected type in group: {type(item)}")
+            for g in group:
+                if isinstance(g, nn.Module): params.extend(g.parameters())
+                elif isinstance(g, nn.Parameter): params.append(g)
+                else: raise TypeError(type(g))
             return params
-        if isinstance(group, nn.Parameter):
-            return [group]
-        raise TypeError(f"Cannot convert {type(group)} to parameter list.")
+        if isinstance(group, nn.Parameter): return [group]
+        raise TypeError(type(group))
 
 
 

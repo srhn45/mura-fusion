@@ -37,7 +37,7 @@ def fit(
     val_loader,
     n_epochs=30,
     lr=1e-4,
-    lr_decay_threshold=1e-3,
+    lr_decay_threshold=1e-2,
     weight_decay=1e-4,
     pos_weight=1.47,
     device="cuda",
@@ -53,7 +53,7 @@ def fit(
         lr=lr, weight_decay=weight_decay
     )
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=scheduler_patience, threshold=lr_decay_threshold
+        optimizer, mode="max", factor=0.5, patience=scheduler_patience, threshold=lr_decay_threshold
     )
     criterion = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([pos_weight], device=device) if pos_weight else None
@@ -62,14 +62,12 @@ def fit(
     unfreezer = None
     if unfreeze_groups:
         unfreezer = ProgressiveUnfreezer(
-            optimizer,
-            unfreeze_groups,
-            lr_scale=unfreeze_lr_scale,
-            patience=unfreeze_patience,
+            optimizer, unfreeze_groups, lr_scale=0.5, 
+            patience=2, mode="max"
         )
         
     bad_epochs = 0
-    best_val_loss = float("inf")
+    best_kappa = 0
 
     for epoch in range(1, n_epochs + 1):
         # ── train ──────────────────────────────────────────────────────
@@ -102,25 +100,24 @@ def fit(
         )
 
         # ── schedulers ─────────────────────────────────────────────────        
-        if val_loss > best_val_loss - lr_decay_threshold:
-            bad_epochs += 1
-            if bad_epochs >= min(scheduler_patience, unfreeze_patience):
-                print(f"  ↳ Patience reached, reverting to best model before LR reduction/unfreezing")
-                model.load_state_dict(torch.load(checkpoint_path))
-                bad_epochs = 0
-        else:
+        if kappa > best_kappa + lr_decay_threshold:
+            best_kappa = kappa
             bad_epochs = 0
+            print('Reverting to best model')
+            torch.save(model.state_dict(), checkpoint_path)
+        else:
+            bad_epochs += 1
         
-        lr_scheduler.step(val_loss)
+        lr_scheduler.step(kappa)
         if unfreezer and not unfreezer.all_unfrozen():
-            unfreezer.step(val_loss)
+            unfreezer.step(kappa)
                 
 
         # ── checkpoint ─────────────────────────────────────────────────
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if kappa > best_kappa + lr_decay_threshold:
+            best_kappa = kappa
             torch.save(model.state_dict(), checkpoint_path)
             print(f"  ↳ checkpoint saved (val_loss={val_loss:.4f})")
 
-    print(f"\nTraining complete. Best val loss: {best_val_loss:.4f}")
+    print(f"\nTraining complete. Best kappa: {best_kappa:.4f}")
     return model
