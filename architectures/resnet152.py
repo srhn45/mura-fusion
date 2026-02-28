@@ -2,7 +2,7 @@ import torch
 import torchvision.models as tvm
 import torch.nn as nn
 
-from modules import SwiGLU
+from architectures.modules import SwiGLU
 
 class ResNet152_Backbone(nn.Module):
     """

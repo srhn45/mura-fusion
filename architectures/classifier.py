@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from modules import SwiGLU
+from architectures.modules import SwiGLU
 
 class Classifier(nn.Module):
     """

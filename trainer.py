@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import cohen_kappa_score
 
-from unfreezer import ProgressiveUnfreezer
+from helpers.unfreezer import ProgressiveUnfreezer
 
 @torch.no_grad()
 def evaluate(model, loader, device, pos_weight=None):
