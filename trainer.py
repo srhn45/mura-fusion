@@ -37,7 +37,7 @@ def fit(
     val_loader,
     n_epochs=30,
     lr=1e-4,
-    lr_decay_threshold=1e-3
+    lr_decay_threshold=1e-3,
     weight_decay=1e-4,
     pos_weight=1.47,
     device="cuda",
