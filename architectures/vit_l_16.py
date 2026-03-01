@@ -3,7 +3,9 @@ import torchvision.models as tvm
 import torch.nn as nn
 
 from architectures.modules import SwiGLU
+from helpers.checkpoint import register
 
+@register
 class ViT_L_16_Backbone(nn.Module):
     """
     Pretrained ViT-L/16 adapted for grayscale input

@@ -3,7 +3,9 @@ import torchvision.models as tvm
 import torch.nn as nn
 
 from architectures.modules import SwiGLU
+from helpers.checkpoint import register
 
+@register
 class ResNet101_Backbone(nn.Module):
     """
     Pretrained ResNet-101 adapted for grayscale input 

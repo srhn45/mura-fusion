@@ -46,7 +46,8 @@ def fit(
     unfreeze_groups=None,
     unfreeze_patience=2,
     unfreeze_lr_scale=0.5,
-    checkpoint_path="model/best_model.pt"
+    checkpoint_path="model/best_model.pt",
+    save_fn=None
 ):
     model = model.to(device)
     optimizer = torch.optim.AdamW(
@@ -113,13 +114,17 @@ def fit(
             best_kappa = kappa
             bad_epochs = 0
             tqdm.write(f"  ↳ checkpoint saved (val_loss={val_loss:.4f}, kappa={kappa:.4f})")
-            torch.save(model.state_dict(), checkpoint_path)
+            if save_fn:
+                save_fn(model)
+            else:
+                torch.save(model.state_dict(), checkpoint_path)
         else:
             bad_epochs += 1
             
             if bad_epochs >= 2 * max(unfreeze_patience, scheduler_patience):
                 tqdm.write(f"  ↳ Reversal patience reached, reverting to best model")
-                model.load_state_dict(torch.load(checkpoint_path))
+                ckpt = torch.load(checkpoint_path)
+                model.load_state_dict(ckpt["state_dict"] if "state_dict" in ckpt else ckpt)
                 if unfreezer:
                     unfreezer._wait = 0
                     unfreezer._best_val = best_kappa
