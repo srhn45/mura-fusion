@@ -29,13 +29,14 @@ class ViT_L_16_Backbone(nn.Module):
         hidden_dim = base.hidden_dim  # ViT-L/16 hidden dim is 1024
         
         self.proj = nn.Sequential(
+            SwiGLU(hidden_dim),
             nn.Linear(hidden_dim, embed_dim),
             nn.RMSNorm(embed_dim),
             nn.Dropout(dropout)
         )
         self.alpha_head = nn.Sequential(
             SwiGLU(hidden_dim),
-            nn.Linear(embed_dim, 1)
+            nn.Linear(hidden_dim, 1)
         )
         
         freeze_until_idx = {
@@ -58,22 +59,12 @@ class ViT_L_16_Backbone(nn.Module):
     def forward(self, x):
         n = x.shape[0]
         x = self.backbone._process_input(x)
-        
-        # Patch embedding
-        x = self.backbone.conv_proj(x)  # (n, 1024, H', W')
-        x = x.flatten(2).transpose(1, 2)  # (n, num_patches, 1024)
-        
-        # Add class token and positional embeddings
+
         x = torch.cat([self.backbone.class_token.expand(n, 1, -1), x], dim=1)
         x = x + self.backbone.encoder.pos_embedding
         x = self.backbone.encoder.dropout(x)
-        
-        # Encoder layers
         x = self.backbone.encoder.ln(self.backbone.encoder.layers(x))
-        
-        # Class token output
         cls_token = x[:, 0]
-        
-        embed = self.proj(cls_token)
-        alpha = self.alpha_head(cls_token)
+        embed = self.proj(cls_token)       # for classification
+        alpha = self.alpha_head(cls_token) # alpha directly from cls_token
         return alpha, embed

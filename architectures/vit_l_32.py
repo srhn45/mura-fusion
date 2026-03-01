@@ -34,7 +34,7 @@ class ViT_L_32_Backbone(nn.Module):
             nn.Dropout(dropout)
         )
         self.alpha_head = nn.Sequential(
-            SwiGLU(hidden_dim),
+            #SwiGLU(hidden_dim),
             nn.Linear(hidden_dim, 1)
         )
         
