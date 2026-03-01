@@ -32,7 +32,7 @@ class ViT_L_16_Backbone(nn.Module):
             nn.Dropout(dropout)
         )
         self.alpha_head = nn.Sequential(
-            SwiGLU(embed_dim),
+            SwiGLU(hidden_dim),
             nn.Linear(embed_dim, 1)
         )
         
@@ -73,5 +73,5 @@ class ViT_L_16_Backbone(nn.Module):
         cls_token = x[:, 0]
         
         embed = self.proj(cls_token)
-        alpha = self.alpha_head(embed)
+        alpha = self.alpha_head(cls_token)
         return alpha, embed

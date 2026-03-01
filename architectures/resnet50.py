@@ -30,7 +30,7 @@ class ResNet50_Backbone(nn.Module):
             nn.Dropout(dropout)
         )
         self.alpha_head = nn.Sequential(
-            SwiGLU(embed_dim),
+            SwiGLU(2048),
             nn.Linear(embed_dim, 1)
         )
             
@@ -51,5 +51,5 @@ class ResNet50_Backbone(nn.Module):
         feats = self.backbone(x)
         pooled = self.pool(feats).flatten(1)
         embed = self.proj(pooled)
-        alpha = self.alpha_head(embed)
+        alpha = self.alpha_head(pooled)
         return alpha, embed
