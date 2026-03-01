@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import cohen_kappa_score
 from tqdm.auto import tqdm
+from torch.amp import autocast, GradScaler
 
 from helpers.unfreezer import ProgressiveUnfreezer
 
@@ -18,8 +19,9 @@ def evaluate(model, loader, device, pos_weight=None):
 
     for image_list, labels in tqdm(loader, desc="Validating", leave=False):
         labels = labels.to(device)
-        logits, _ = model(image_list)
-        loss = criterion(logits, labels)
+        with autocast(device_type="cuda"):
+            logits, _ = model(image_list)
+            loss = criterion(logits, labels)
 
         total_loss += loss.item() * labels.size(0)
         preds = (logits.sigmoid() > 0.5).float()
@@ -60,6 +62,8 @@ def fit(
     criterion = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([pos_weight], device=device) if pos_weight else None
     )
+    
+    scaler = GradScaler()
 
     unfreezer = None
     if unfreeze_groups:
@@ -79,12 +83,17 @@ def fit(
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch:03d} Train", leave=False)
         for image_list, labels in train_pbar:
             labels = labels.to(device)
-            optimizer.zero_grad()
-            logits, _ = model(image_list)
-            loss = criterion(logits, labels)
-            loss.backward()
+            
+            with autocast(device_type="cuda"):
+                logits, _ = model(image_list)
+                loss = criterion(logits, labels)
+            
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
             
             train_loss += loss.item() * labels.size(0)
             preds = (logits.detach().sigmoid() > 0.5).float()

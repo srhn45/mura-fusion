@@ -1,6 +1,7 @@
 import torch
 import torchvision.models as tvm
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from architectures.modules import SwiGLU
 from helpers.checkpoint import register
@@ -63,7 +64,13 @@ class ViT_L_16_Backbone(nn.Module):
         x = torch.cat([self.backbone.class_token.expand(n, 1, -1), x], dim=1)
         x = x + self.backbone.encoder.pos_embedding
         x = self.backbone.encoder.dropout(x)
-        x = self.backbone.encoder.ln(self.backbone.encoder.layers(x))
+        
+        x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
+        
+        #for layer in self.backbone.encoder.layers: # less vram
+        #    x = checkpoint(layer, x, use_reentrant=False)
+        #x = self.backbone.encoder.ln(x)
+        
         cls_token = x[:, 0]
         embed = self.proj(cls_token)       # for classification
         alpha = self.alpha_head(cls_token) # alpha directly from cls_token

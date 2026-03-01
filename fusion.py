@@ -9,6 +9,9 @@ from helpers.checkpoint import save_checkpoint
 from helpers.augments import make_transform
 from helpers.trainer import fit
 
+import warnings # Custom RMSNorm is float32
+warnings.filterwarnings("ignore", message="Mismatch dtype between input and weight")
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 DATA_DIR       = "data/MURA-v1.1"
@@ -26,11 +29,12 @@ FIT_KWARGS = dict(
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
                            parent_dir=PARENT_DIR,
                            batch_size=8, shuffle=True, num_workers=2, pin_memory=True,
-                           drop_last=True)
+                           drop_last=True, persistent_workers=False)
 
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
                            parent_dir=PARENT_DIR,
-                           batch_size=8, shuffle=False, num_workers=2, pin_memory=True)
+                           batch_size=8, shuffle=False, num_workers=2, pin_memory=True,
+                           persistent_workers=False)
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 
