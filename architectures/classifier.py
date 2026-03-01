@@ -31,26 +31,16 @@ class Classifier(nn.Module):
         self.classifier = nn.Sequential(*layers)
 
     def forward(self, image_list):
-        """
-        Args:
-            image_list : list of tensors, each (N_i, 1, H, W)
-                         N_i is the number of images for patient i.
-        """
         logits = []
         all_weights = []
 
-        for images in image_list:          # images: (N, 1, H, W)
+        for images in image_list:                          # images: (N, 1, H, W)
             images = images.to(next(self.parameters()).device)
-
-            alphas, embeds = self.backbone(images)   # (N,1), (N, embed_dim)
-
-            weights = F.softmax(alphas, dim=0)  # (N, 1)
-
-            fused = (weights * embeds).sum(dim=0, keepdim=True)  # (1, embed_dim)
-
-            logit = self.classifier(fused).squeeze()  # scalar
-
+            alphas, embeds = self.backbone(images)         # (N, 1), (N, embed_dim)
+            weights = F.softmax(alphas, dim=0)
+            fused = (weights * embeds).sum(dim=0, keepdim=True)
+            logit = self.classifier(fused).squeeze()
             logits.append(logit)
-            all_weights.append(weights.squeeze(1))    # (N,)
+            all_weights.append(weights.squeeze(1))
 
-        return torch.stack(logits), all_weights        # (B,), [list of (N_i,)]
+        return torch.stack(logits), all_weights  # (B, 1)

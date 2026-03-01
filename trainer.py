@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import cohen_kappa_score
+from tqdm.auto import tqdm
 
 from helpers.unfreezer import ProgressiveUnfreezer
 
@@ -15,7 +16,7 @@ def evaluate(model, loader, device, pos_weight=None):
     total_loss, correct, total = 0.0, 0, 0
     all_preds, all_labels = [], []
 
-    for image_list, labels in loader:
+    for image_list, labels in tqdm(loader, desc="Validating", leave=False):
         labels = labels.to(device)
         logits, _ = model(image_list)
         loss = criterion(logits, labels)
@@ -63,17 +64,19 @@ def fit(
     if unfreeze_groups:
         unfreezer = ProgressiveUnfreezer(
             optimizer, unfreeze_groups, lr_scale=0.5, 
-            patience=2, mode="max"
+            patience=unfreeze_patience, mode="max"
         )
         
     bad_epochs = 0
     best_kappa = 0
 
-    for epoch in range(1, n_epochs + 1):
+    for epoch in tqdm(range(1, n_epochs + 1), desc="Training"):
         # ── train ──────────────────────────────────────────────────────
         model.train()
         train_loss, correct, total = 0.0, 0, 0
-        for image_list, labels in train_loader:
+        
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch:03d} Train", leave=False)
+        for image_list, labels in train_pbar:
             labels = labels.to(device)
             optimizer.zero_grad()
             logits, _ = model(image_list)
@@ -81,43 +84,53 @@ def fit(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            
             train_loss += loss.item() * labels.size(0)
             preds = (logits.detach().sigmoid() > 0.5).float()
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+            
+            train_pbar.set_postfix({
+                'loss': f"{train_loss/total:.4f}",
+                'acc': f"{correct/total:.4f}"
+            })
+            
         train_loss /= total
         train_acc = correct / total
 
         # ── validate ───────────────────────────────────────────────────
-        model.eval()        
         val_loss, val_acc, kappa = evaluate(model, val_loader, device, pos_weight=pos_weight)
 
-        print(
+        tqdm.write(
             f"Epoch {epoch:03d} | "
             f"train loss {train_loss:.4f}  acc {train_acc:.4f} | "
             f"val loss {val_loss:.4f}  acc {val_acc:.4f}  | "
-            f"kappa {kappa}"
+            f"kappa {kappa:.4f}"
         )
 
-        # ── schedulers ─────────────────────────────────────────────────        
+        # ── schedulers & checkpointing ─────────────────────────────────        
         if kappa > best_kappa + lr_decay_threshold:
             best_kappa = kappa
             bad_epochs = 0
-            print('Reverting to best model')
+            tqdm.write(f"  ↳ checkpoint saved (val_loss={val_loss:.4f}, kappa={kappa:.4f})")
             torch.save(model.state_dict(), checkpoint_path)
         else:
             bad_epochs += 1
+            
+            if bad_epochs >= 2 * max(unfreeze_patience, scheduler_patience):
+                tqdm.write(f"  ↳ Reversal patience reached, reverting to best model")
+                model.load_state_dict(torch.load(checkpoint_path))
+                if unfreezer:
+                    unfreezer._wait = 0
+                    unfreezer._best_val = best_kappa
+                bad_epochs = 0
         
         lr_scheduler.step(kappa)
         if unfreezer and not unfreezer.all_unfrozen():
-            unfreezer.step(kappa)
-                
-
-        # ── checkpoint ─────────────────────────────────────────────────
-        if kappa > best_kappa + lr_decay_threshold:
-            best_kappa = kappa
-            torch.save(model.state_dict(), checkpoint_path)
-            print(f"  ↳ checkpoint saved (val_loss={val_loss:.4f})")
+            stepped = unfreezer.step(kappa)
+            
+            if stepped:
+                bad_epochs = 0
 
     print(f"\nTraining complete. Best kappa: {best_kappa:.4f}")
     return model
