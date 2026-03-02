@@ -2,6 +2,7 @@ import torch
 import torchvision.models as tvm
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
+import torch.nn.functional as F
 
 from architectures.modules import SwiGLU
 from helpers.checkpoint import register
@@ -30,15 +31,14 @@ class ViT_L_16_Backbone(nn.Module):
         hidden_dim = base.hidden_dim  # ViT-L/16 hidden dim is 1024
         
         self.proj = nn.Sequential(
-            SwiGLU(hidden_dim),
+            #SwiGLU(hidden_dim),
             nn.Linear(hidden_dim, embed_dim),
             nn.RMSNorm(embed_dim),
             nn.Dropout(dropout)
         )
-        self.alpha_head = nn.Sequential(
-            SwiGLU(hidden_dim),
-            nn.Linear(hidden_dim, 1)
-        )
+        
+        self.alpha_spatial = nn.Linear(hidden_dim, 1)  # scoring each image patch
+        self.alpha_head    = nn.Linear(hidden_dim, 1)  # mapping attended context to a scalar
         
         freeze_until_idx = {
             'encoder_layer_0': 0, 'encoder_layer_2': 2, 'encoder_layer_4': 4,
@@ -73,5 +73,9 @@ class ViT_L_16_Backbone(nn.Module):
         
         cls_token = x[:, 0]
         embed = self.proj(cls_token)       # for classification
-        alpha = self.alpha_head(cls_token) # alpha directly from cls_token
+        
+        spatial  = x[:, 1:]                                        # (N, S, hidden_dim)
+        scores   = F.softmax(self.alpha_spatial(spatial), dim=1)   # (N, S, 1)
+        context  = (scores * spatial).sum(dim=1)                   # (N, hidden_dim)
+        alpha    = self.alpha_head(context)                        # (N, 1)
         return alpha, embed

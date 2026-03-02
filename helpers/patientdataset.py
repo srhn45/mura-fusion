@@ -46,7 +46,7 @@ class PatientDataset(Dataset):
         # (N, 1, H, W) — variable N per patient
         images = torch.stack(imgs, dim=0)
         label = torch.tensor(row["label"], dtype=torch.float32)
-        return images, label
+        return images, label, row["category"] 
 
 
 def patient_collate_fn(batch):
@@ -55,7 +55,8 @@ def patient_collate_fn(batch):
     """
     image_list = [item[0] for item in batch]   # list of (N_i, 1, H, W)
     labels = torch.stack([item[1] for item in batch])  # (B,)
-    return image_list, labels
+    categories  = [item[2] for item in batch]             
+    return image_list, labels, categories
 
 def make_loader(df, augment, parent_dir, **kwargs):
     return DataLoader(PatientDataset(df, parent_dir, make_transform(augment)),

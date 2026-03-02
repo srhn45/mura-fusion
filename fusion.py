@@ -1,3 +1,20 @@
+import signal, sys
+
+def cleanup(sig, frame):
+    print("\nCleaning up...")
+    try:
+        train_loader._iterator = None
+        val_loader._iterator   = None
+    except:
+        pass
+    torch.cuda.empty_cache()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT,  cleanup)
+signal.signal(signal.SIGTERM, cleanup)
+
+# ──────────────────────────────────────────────────────────────────────────────
+
 import os
 import torch
 import pandas as pd
@@ -14,14 +31,17 @@ warnings.filterwarnings("ignore", message="Mismatch dtype between input and weig
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
+CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
+              "XR_FOREARM", "XR_WRIST", "XR_HAND", "XR_FINGER"]
+
 DATA_DIR       = "data/MURA-v1.1"
 PARENT_DIR     = "data"
 CHECKPOINT     = "models/best_model_vit_l_16.pt"
-BACKBONE_KWARGS    = dict(embed_dim=256, freeze_until="encoder_layer_19", dropout=0.1)
-CLASSIFIER_KWARGS  = dict(embed_dim=256, mlp_depth=2)
+BACKBONE_KWARGS    = dict(embed_dim=256, freeze_until="encoder_layer_21", dropout=0.1)
+CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS = dict(
     n_epochs=50, lr=1e-4, pos_weight=1.47,
-    scheduler_patience=3, unfreeze_patience=3, unfreeze_lr_scale=0.5,
+    unfreeze_patience=3, unfreeze_lr_scale=0.5,
 )
 
 # ── Data ──────────────────────────────────────────────────────────────────────

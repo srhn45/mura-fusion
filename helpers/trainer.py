@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,10 +18,10 @@ def evaluate(model, loader, device, pos_weight=None):
     total_loss, correct, total = 0.0, 0, 0
     all_preds, all_labels = [], []
 
-    for image_list, labels in tqdm(loader, desc="Validating", leave=False):
+    for image_list, labels, categories in tqdm(loader, desc="Validating", leave=False):
         labels = labels.to(device)
         with autocast(device_type="cuda"):
-            logits, _ = model(image_list)
+            logits, _ = model(image_list, categories)
             loss = criterion(logits, labels)
 
         total_loss += loss.item() * labels.size(0)
@@ -44,7 +45,7 @@ def fit(
     weight_decay=1e-4,
     pos_weight=1.47,
     device="cuda",
-    scheduler_patience=3,
+    warmup_steps=500, 
     unfreeze_groups=None,
     unfreeze_patience=2,
     unfreeze_lr_scale=0.5,
@@ -56,9 +57,16 @@ def fit(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=lr, weight_decay=weight_decay
     )
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=scheduler_patience, threshold=lr_decay_threshold
-    )
+    
+    total_steps = n_epochs * len(train_loader)
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / max(1, warmup_steps) # linear warmup
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return 0.5 * (1 + math.cos(math.pi * progress)) # cosine decay
+
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
     criterion = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([pos_weight], device=device) if pos_weight else None
     )
@@ -81,11 +89,11 @@ def fit(
         train_loss, correct, total = 0.0, 0, 0
         
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch:03d} Train", leave=False)
-        for image_list, labels in train_pbar:
+        for image_list, labels, categories in train_pbar:
             labels = labels.to(device)
             
             with autocast(device_type="cuda"):
-                logits, _ = model(image_list)
+                logits, _ = model(image_list, categories)
                 loss = criterion(logits, labels)
             
             scaler.scale(loss).backward()
@@ -94,6 +102,7 @@ def fit(
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
+            lr_scheduler.step() 
             
             train_loss += loss.item() * labels.size(0)
             preds = (logits.detach().sigmoid() > 0.5).float()
@@ -139,7 +148,6 @@ def fit(
                     unfreezer._best_val = best_kappa
                 bad_epochs = 0
         
-        lr_scheduler.step(kappa)
         if unfreezer and not unfreezer.all_unfrozen():
             stepped = unfreezer.step(kappa)
             
