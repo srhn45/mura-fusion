@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from architectures.modules import SwiGLU
+from architectures.modules import SwiGLU, RMSNorm
 
 CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
               "XR_FOREARM", "XR_WRIST", "XR_HAND", "XR_FINGER"]
@@ -21,7 +21,7 @@ class Classifier(nn.Module):
         for _ in range(mlp_depth):
             layers.extend([
                 SwiGLU(embed_dim, hidden_ratio=swi_ratio),
-                nn.RMSNorm(embed_dim),
+                RMSNorm(embed_dim),
                 nn.Dropout(dropout)
             ])
         layers.append(nn.Linear(embed_dim, 1))

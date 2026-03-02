@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 import torch.nn.functional as F
 
-from architectures.modules import SwiGLU
+from architectures.modules import SwiGLU, RMSNorm
 from helpers.checkpoint import register
 
 @register
@@ -34,8 +34,7 @@ class ViT_L_16_Backbone(nn.Module):
         self.proj = nn.Sequential(
             nn.Linear(hidden_dim, embed_dim),
             SwiGLU(embed_dim, hidden_ratio=4/3), # or gelu to shed parameters
-            nn.SELU(),
-            nn.RMSNorm(embed_dim),
+            RMSNorm(embed_dim),
             nn.Dropout(dropout)   
         )
         
@@ -46,8 +45,9 @@ class ViT_L_16_Backbone(nn.Module):
             'encoder_layer_0': 0, 'encoder_layer_2': 2, 'encoder_layer_4': 4,
             'encoder_layer_6': 6, 'encoder_layer_8': 8, 'encoder_layer_10': 10,
             'encoder_layer_12': 12, 'encoder_layer_14': 14, 'encoder_layer_16': 16,
-            'encoder_layer_18': 18, 'encoder_layer_20': 20, 'encoder_layer_22': 22
-        }.get(freeze_until, 22)
+            'encoder_layer_18': 18, 'encoder_layer_20': 20, 'encoder_layer_22': 22,
+            'encoder_layer_24': 24
+        }.get(freeze_until, 24)
         
         start_idx = 0 if not finetune_input else 1
         if start_idx == 0:
@@ -58,6 +58,10 @@ class ViT_L_16_Backbone(nn.Module):
             if i < freeze_until_idx:
                 for p in layer.parameters():
                     p.requires_grad = False
+        
+        #for p in base.encoder.ln.parameters():
+        #    p.requires_grad = False
+        #base.class_token.requires_grad = False
     
     def forward(self, x):
         n = x.shape[0]
@@ -67,11 +71,11 @@ class ViT_L_16_Backbone(nn.Module):
         x = x + self.backbone.encoder.pos_embedding
         x = self.backbone.encoder.dropout(x)
         
-        x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
+        #x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
         
-        #for layer in self.backbone.encoder.layers: # less vram
-        #    x = checkpoint(layer, x, use_reentrant=False)
-        #x = self.backbone.encoder.ln(x)
+        for layer in self.backbone.encoder.layers: # less vram
+            x = checkpoint(layer, x, use_reentrant=False)
+        x = self.backbone.encoder.ln(x)
         
         cls_token = x[:, 0]
         embed = self.proj(cls_token)       # for classification

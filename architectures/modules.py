@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class PatchEmbed(nn.Module):
     def __init__(self, img_size=256, patch_size=16, in_chans=1, embed_dim=256):
@@ -91,3 +92,7 @@ def apply_rotary_pos_emb(x, cos, sin):
         [x1 * cos - x2 * sin, x2 * cos + x1 * sin],
         dim=-1
     ).flatten(-2)
+
+class RMSNorm(nn.RMSNorm):
+    def forward(self, x):
+        return F.rms_norm(x, self.normalized_shape, self.weight.to(x.dtype), self.eps)
