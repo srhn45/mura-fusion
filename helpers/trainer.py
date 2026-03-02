@@ -1,3 +1,4 @@
+import warnings
 import math
 import torch
 import torch.nn as nn
@@ -48,7 +49,7 @@ def fit(
     warmup_steps=500, 
     unfreeze_groups=None,
     unfreeze_patience=2,
-    unfreeze_lr_scale=0.5,
+    unfreeze_lr_scale=0.1,
     checkpoint_path="model/best_model.pt",
     save_fn=None
 ):
@@ -65,7 +66,9 @@ def fit(
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
         return 0.5 * (1 + math.cos(math.pi * progress)) # cosine decay
 
-    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     
     criterion = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([pos_weight], device=device) if pos_weight else None
