@@ -15,6 +15,7 @@ class ProgressiveUnfreezer:
         min_delta: float = 1e-3,
         mode: str = "min",  # "min" for val_loss, "max" for kappa/accuracy
         verbose: bool = True,
+        prescheduled: bool = False,
     ):
         self.optimizer = optimizer
         self.lr_scale = lr_scale
@@ -29,6 +30,9 @@ class ProgressiveUnfreezer:
 
         self._best_val = float("inf") if mode == "min" else -float("inf")
         self._wait = 0
+        
+        self.prescheduled = prescheduled
+        self._epochs_since_unfreeze = 0
 
         while self.next_idx < self.n_groups and self._group_is_unfrozen(self.next_idx):
             self.next_idx += 1
@@ -38,6 +42,13 @@ class ProgressiveUnfreezer:
             print(f"[Unfreezer] {frozen} group(s) queued for progressive unfreezing.")
 
     def step(self, metric: float) -> bool:
+        if self.prescheduled:
+            self._epochs_since_unfreeze += 1
+            if self._epochs_since_unfreeze >= self.patience:
+                self._epochs_since_unfreeze = 0
+                return self._unfreeze_next()
+            return False
+        
         improved = (metric < self._best_val - self.min_delta) if self.mode == "min" else (metric > self._best_val + self.min_delta)
         if improved:
             self._best_val = metric

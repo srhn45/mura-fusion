@@ -15,7 +15,8 @@ class ViT_L_16_Backbone(nn.Module):
     """
     def __init__(self, embed_dim=256, freeze_until='encoder_layer_22', dropout=0.1, finetune_input=True):
         super().__init__()
-        base = tvm.vit_l_16(weights=tvm.ViT_L_16_Weights.DEFAULT)
+        # base = tvm.vit_l_16(weights=tvm.ViT_L_16_Weights.DEFAULT) #224x224
+        base = tvm.vit_l_16(weights=tvm.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1) # 384x384
         
         # Adapt patch embedding for grayscale
         old_proj = base.conv_proj
@@ -31,10 +32,11 @@ class ViT_L_16_Backbone(nn.Module):
         hidden_dim = base.hidden_dim  # ViT-L/16 hidden dim is 1024
         
         self.proj = nn.Sequential(
-            #SwiGLU(hidden_dim),
             nn.Linear(hidden_dim, embed_dim),
+            SwiGLU(embed_dim, hidden_ratio=4/3), # or gelu to shed parameters
+            nn.SELU(),
             nn.RMSNorm(embed_dim),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout)   
         )
         
         self.alpha_spatial = nn.Linear(hidden_dim, 1)  # scoring each image patch

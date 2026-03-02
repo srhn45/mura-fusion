@@ -77,7 +77,9 @@ def fit(
     if unfreeze_groups:
         unfreezer = ProgressiveUnfreezer(
             optimizer, unfreeze_groups, lr_scale=0.5, 
-            patience=unfreeze_patience, mode="max"
+            patience=unfreeze_patience, 
+            prescheduled=True,
+            mode="max"
         )
         
     bad_epochs = 0

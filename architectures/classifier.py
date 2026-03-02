@@ -8,7 +8,7 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
               "XR_FOREARM", "XR_WRIST", "XR_HAND", "XR_FINGER"]
 
 class Classifier(nn.Module):
-    def __init__(self, backbone, categories=CATEGORIES, embed_dim=256, swi_ratio=8/3, mlp_depth=1, dropout=0.1):
+    def __init__(self, backbone, categories=CATEGORIES, embed_dim=256, swi_ratio=4/3, mlp_depth=1, dropout=0.1):
         super().__init__()
         self.backbone = backbone
         self.classifiers = nn.ModuleDict({
@@ -18,12 +18,12 @@ class Classifier(nn.Module):
 
     def _make_head(self, embed_dim, swi_ratio, mlp_depth, dropout):
         layers = []
-        #for _ in range(mlp_depth):
-            #layers.extend([
-            #    SwiGLU(embed_dim, hidden_ratio=swi_ratio),
-            #    nn.RMSNorm(embed_dim),
-            #    nn.Dropout(dropout)
-            #])
+        for _ in range(mlp_depth):
+            layers.extend([
+                SwiGLU(embed_dim, hidden_ratio=swi_ratio),
+                nn.RMSNorm(embed_dim),
+                nn.Dropout(dropout)
+            ])
         layers.append(nn.Linear(embed_dim, 1))
         return nn.Sequential(*layers)
 

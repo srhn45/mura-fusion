@@ -37,7 +37,7 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 DATA_DIR       = "data/MURA-v1.1"
 PARENT_DIR     = "data"
 CHECKPOINT     = "models/best_model_vit_l_16.pt"
-BACKBONE_KWARGS    = dict(embed_dim=256, freeze_until="encoder_layer_21", dropout=0.1)
+BACKBONE_KWARGS    = dict(embed_dim=256, freeze_until="encoder_layer_22", dropout=0.1)
 CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS = dict(
     n_epochs=50, lr=1e-4, pos_weight=1.47,
@@ -47,12 +47,12 @@ FIT_KWARGS = dict(
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
-                           parent_dir=PARENT_DIR,
+                           parent_dir=PARENT_DIR, size=512,
                            batch_size=8, shuffle=True, num_workers=2, pin_memory=True,
                            drop_last=True, persistent_workers=False)
 
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
-                           parent_dir=PARENT_DIR,
+                           parent_dir=PARENT_DIR, size=512,
                            batch_size=8, shuffle=False, num_workers=2, pin_memory=True,
                            persistent_workers=False)
 
@@ -69,6 +69,11 @@ def save_fn(model):
     save_checkpoint(model, CHECKPOINT, backbone_cls=type(backbone).__name__,
                     backbone_kwargs=BACKBONE_KWARGS, classifier_kwargs=CLASSIFIER_KWARGS,
                     **FIT_KWARGS)
+    
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Total parameters: {total_params:,}")
+print(f"Initially trainable parameters: {trainable_params:,}")
 
 # ── Train ─────────────────────────────────────────────────────────────────────
 

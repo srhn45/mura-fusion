@@ -1,4 +1,5 @@
 import os
+import random
 import pandas as pd
 import torch
 from PIL import Image
@@ -17,9 +18,10 @@ class PatientDataset(Dataset):
     """
     Each item is one patient's full set of X-ray images plus their label.
     """
-    def __init__(self, df, root_dir, transform=None):
+    def __init__(self, df, root_dir, transform=None, training=False):
         self.root_dir = root_dir
         self.transform = transform
+        self.training = training
 
         # extract study id from path (once, before grouping)
         df = df.copy()
@@ -42,6 +44,10 @@ class PatientDataset(Dataset):
             if self.transform:
                 img = self.transform(img)
             imgs.append(img)
+        
+        if self.training and len(imgs) > 1:
+            k = torch.randint(1, len(imgs) + 1, (1,)).item()
+            imgs = random.sample(imgs, k)
 
         # (N, 1, H, W) — variable N per patient
         images = torch.stack(imgs, dim=0)
@@ -58,6 +64,7 @@ def patient_collate_fn(batch):
     categories  = [item[2] for item in batch]             
     return image_list, labels, categories
 
-def make_loader(df, augment, parent_dir, **kwargs):
-    return DataLoader(PatientDataset(df, parent_dir, make_transform(augment)),
+def make_loader(df, augment, parent_dir, size=224, **kwargs):
+    return DataLoader(PatientDataset(df, parent_dir, make_transform(augment, size),
+                                     training=augment),
                       collate_fn=patient_collate_fn, **kwargs)
