@@ -2,7 +2,7 @@ import torch
 import torchvision.models as tvm
 import torch.nn as nn
 
-from architectures.modules import SwiGLU
+from architectures.modules import SwiGLU, RMSNorm
 from helpers.checkpoint import register
 
 @register
@@ -32,7 +32,9 @@ class ResNet152_Backbone(nn.Module):
             nn.Dropout(dropout)
         )
         self.alpha_head = nn.Sequential(
-            SwiGLU(2048),
+            nn.Linear(2048, embed_dim),
+            nn.GELU(),
+            RMSNorm(embed_dim),
             nn.Linear(embed_dim, 1)
         )
             

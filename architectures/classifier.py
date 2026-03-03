@@ -11,30 +11,38 @@ class Classifier(nn.Module):
     def __init__(self, backbone, categories=CATEGORIES, embed_dim=256, swi_ratio=4/3, mlp_depth=1, dropout=0.1):
         super().__init__()
         self.backbone = backbone
-        self.classifiers = nn.ModuleDict({
-            cat: self._make_head(embed_dim, swi_ratio, mlp_depth, dropout)
-            for cat in categories
-        })
 
-    def _make_head(self, embed_dim, swi_ratio, mlp_depth, dropout):
-        layers = []
-        for _ in range(mlp_depth):
-            layers.extend([
-                SwiGLU(embed_dim, hidden_ratio=swi_ratio),
-                RMSNorm(embed_dim),
-                nn.Dropout(dropout)
-            ])
-        layers.append(nn.Linear(embed_dim, 1))
-        return nn.Sequential(*layers)
+        self.category_to_idx = {cat: i for i, cat in enumerate(categories)}
+        self.category_embed = nn.Embedding(len(categories), embed_dim)
+
+        self.classifier = nn.Sequential(
+            SwiGLU(embed_dim, hidden_ratio=swi_ratio),
+            RMSNorm(embed_dim),
+            nn.Linear(embed_dim, 1)
+        )
+        
+        self.logit_bias = nn.Parameter(torch.tensor(0.0))
 
     def forward(self, image_list, categories):
         logits, all_weights = [], []
+
         for images, category in zip(image_list, categories):
-            images  = images.to(next(self.parameters()).device)
+            images = images.to(next(self.parameters()).device)
             alphas, embeds = self.backbone(images)
+
             weights = F.softmax(alphas, dim=0)
-            fused   = (weights * embeds).sum(dim=0, keepdim=True)
-            logit   = self.classifiers[category](fused).squeeze()
+            fused = (weights * embeds).sum(dim=0, keepdim=True)
+
+            cat_idx = torch.tensor(
+                [self.category_to_idx[category]],
+                device=fused.device
+            )
+
+            conditioned = fused + self.category_embed(cat_idx)
+            logit = self.classifier(conditioned).squeeze()
+            logit = logit + self.logit_bias
+
             logits.append(logit)
             all_weights.append(weights.squeeze(1))
+
         return torch.stack(logits), all_weights

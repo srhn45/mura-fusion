@@ -73,18 +73,28 @@ class ProgressiveUnfreezer:
                 print("[Unfreezer] All groups already unfrozen.")
             return False
 
-        params = self.groups[self.next_idx]
-        for p in params:
+        existing = {id(p) for pg in self.optimizer.param_groups for p in pg["params"]}
+        params = [p for p in self.groups[self.next_idx] if id(p) not in existing]
+
+        for p in self.groups[self.next_idx]:
             p.requires_grad = True
 
+        self.next_idx += 1
+
+        if not params:  # all already in optimizer, skip silently
+            return self._unfreeze_next()
+
         base_lr = self.optimizer.param_groups[0]["lr"]
-        self.optimizer.add_param_group({"params": params, "lr": base_lr * self.lr_scale})
+        self.optimizer.add_param_group({
+            "params": params,
+            "lr": base_lr * self.lr_scale,
+            "lr_scale": self.lr_scale
+        })
 
         if self.verbose:
             n_params = sum(p.numel() for p in params)
-            print(f"[Unfreezer] Unfroze group {self.next_idx+1}/{self.n_groups} ({n_params:,} params) → lr={base_lr*self.lr_scale:.2e}")
+            print(f"[Unfreezer] Unfroze group {self.next_idx}/{self.n_groups} ({n_params:,} params) → lr={base_lr*self.lr_scale:.2e}")
 
-        self.next_idx += 1
         return True
 
     def _group_is_unfrozen(self, idx: int) -> bool:
