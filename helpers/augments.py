@@ -5,7 +5,6 @@ def make_transform(augment=False, size=224):
     if augment:
         ops += [T.RandomHorizontalFlip(), 
                 T.RandomAffine(degrees=30, translate=(0.1, 0.1), scale=(0.85, 1.15)),
-                T.RandomAutocontrast(p=0.3),
                 T.RandomAdjustSharpness(2, p=0.3),
                 T.RandomAutocontrast(p=0.4),
                ]

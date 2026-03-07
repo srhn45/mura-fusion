@@ -18,6 +18,8 @@ class ViT_L_16_Backbone(nn.Module):
         base = tvm.vit_l_16(weights=tvm.ViT_L_16_Weights.DEFAULT) #224x224
         # base = tvm.vit_l_16(weights=tvm.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1) # 512x512
         
+        self.dropout = nn.Dropout(dropout)
+        
         # Adapt patch embedding for grayscale
         old_proj = base.conv_proj
         new_proj = nn.Conv2d(1, old_proj.out_channels, 
@@ -29,20 +31,37 @@ class ViT_L_16_Backbone(nn.Module):
         base.conv_proj = new_proj
         
         self.backbone = base
-        hidden_dim = base.hidden_dim  # ViT-L/16 hidden dim is 1024
+        self.hidden_dim = base.hidden_dim  # ViT-L/16 hidden dim is 1024
         
         self.proj = nn.Sequential(
-            nn.Linear(hidden_dim, embed_dim),
+            nn.Linear(self.hidden_dim, embed_dim),
             nn.GELU(),
             RMSNorm(embed_dim),
             #SwiGLU(embed_dim, hidden_ratio=4/3),
             #RMSNorm(embed_dim),
-            nn.Dropout(dropout)   
+            nn.Dropout(dropout) 
         )
         
-        self.attn_temp = nn.Parameter(torch.tensor(1.0))
-        self.alpha_spatial = nn.Linear(hidden_dim, 1)  # scoring each image patch
-        self.alpha_head    = nn.Linear(hidden_dim, 1)  # mapping attended context to a scalar
+        self.proj2 = nn.Sequential(
+            nn.Linear(self.hidden_dim, embed_dim),
+            nn.GELU(),
+            RMSNorm(embed_dim),
+            #SwiGLU(embed_dim, hidden_ratio=4/3),
+            #RMSNorm(embed_dim),
+            nn.Dropout(dropout)  
+        )
+        
+        #self.attn_temp = nn.Parameter(torch.tensor(1.0))
+        #self.alpha_spatial = nn.Sequential(
+        #    nn.Linear(hidden_dim, hidden_dim//2),
+        #    nn.GELU(),
+        #    nn.Linear(hidden_dim//2, 1)
+        #)
+        #self.alpha_head    = nn.Linear(self.hidden_dim, 1)  # mapping attended context to a scalar
+        
+        self.attn_u = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
+        self.attn_v = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
+        self.attn_w = nn.Linear(self.hidden_dim, 1, bias=False)
         
         freeze_until_idx = {
             'encoder_layer_0': 0, 'encoder_layer_2': 2, 'encoder_layer_4': 4,
@@ -62,10 +81,16 @@ class ViT_L_16_Backbone(nn.Module):
                 for p in layer.parameters():
                     p.requires_grad = False
         
-        
+       
         #for p in base.encoder.ln.parameters():
         #    p.requires_grad = False
-        base.class_token.requires_grad = False
+        #base.class_token.requires_grad = False
+        
+        for layer in base.encoder.layers:
+            layer.self_attention.dropout = dropout  # was 0.0 in pretrained weights
+        
+        self.drop_rates = [0.1 * i / len(self.backbone.encoder.layers) 
+              for i in range(len(self.backbone.encoder.layers))]
     
     def forward(self, x):
         n = x.shape[0]
@@ -77,16 +102,31 @@ class ViT_L_16_Backbone(nn.Module):
         
         #x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
         
-        for layer in self.backbone.encoder.layers: # less vram
-            x = checkpoint(layer, x, use_reentrant=False)
-        x = self.backbone.encoder.ln(x)
+        #for layer in self.backbone.encoder.layers: # less vram
+        #    x = checkpoint(layer, x, use_reentrant=False)
+        #x = self.backbone.encoder.ln(x)
+
+        for i, layer in enumerate(self.backbone.encoder.layers):
+            if self.training and torch.rand(1).item() < self.drop_rates[i]:
+                x = x  # skip residual, keep identity
+            else:
+                x = checkpoint(layer, x, use_reentrant=False) 
         
         cls_token = x[:, 0]
         embed = self.proj(cls_token)       # for classification
         
         spatial  = x[:, 1:]                                        # (N, S, hidden_dim)
-        scores   = F.softmax(self.alpha_spatial(spatial) / self.attn_temp.clamp(min=0.1),
-                             dim=1)   # (N, S, 1)
-        context  = (scores * spatial).sum(dim=1)                   # (N, hidden_dim)
-        alpha    = self.alpha_head(context)                        # (N, 1)
-        return alpha, embed
+        
+        #scores   = F.softmax(self.alpha_spatial(spatial) / self.attn_temp.clamp(min=0.1),
+        #                     dim=1)   # (N, S, 1)
+        #scores   = F.softmax(self.alpha_spatial(spatial), dim=1)   # (N, S, 1)
+        
+        scores  = self.attn_w(
+            torch.tanh(self.attn_v(spatial)) * torch.sigmoid(self.attn_u(spatial))
+        ) # (N, H*W, 1)
+        
+        
+        context  = (scores * spatial).sum(dim=1) # (N, hidden_dim)
+        context = self.proj2(context)
+        #alpha    = self.alpha_head(context)                        # (N, 1)
+        return context, embed
