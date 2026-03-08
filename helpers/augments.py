@@ -1,4 +1,15 @@
 import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+
+def tta_variants(image_list):
+    variants = [image_list]
+    variants.append([[img.flip(-1) for img in imgs] for imgs in image_list])
+    # 90° rotations
+    for angle in [15, 345]:
+        variants.append([[TF.rotate(img, angle) for img in imgs] for imgs in image_list])
+    for factor in [0.85, 1.15]:
+        variants.append([[TF.adjust_contrast(img, factor) for img in imgs] for imgs in image_list])
+    return variants  # 6 variants total including original
 
 def make_transform(augment=False, size=224):
     ops = [T.Grayscale(), T.Resize((size, size))]

@@ -32,7 +32,8 @@ class Classifier(nn.Module):
         logits, all_weights = [], []
 
         for images, category in zip(image_list, categories):
-            images = images.to(next(self.parameters()).device)
+            images = (torch.stack(images) if isinstance(images, list) else
+                      images).to(next(self.parameters()).device)
             context, embeds = self.backbone(images)              # (N, embed_dim)
 
             seq = context.unsqueeze(0)                           # (1, N, embed_dim)

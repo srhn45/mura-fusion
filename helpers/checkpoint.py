@@ -23,6 +23,10 @@ def load_checkpoint(path, device="cpu"):
     Reconstruct model from checkpoint
     Returns the model in eval mode
     """
+    import architectures.convnext_l
+    import architectures.vit_l_16
+    import architectures.resnet152
+    
     ckpt = torch.load(path, map_location=device)
     config = ckpt["config"]
 
