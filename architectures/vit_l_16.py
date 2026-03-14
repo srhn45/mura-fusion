@@ -51,17 +51,9 @@ class ViT_L_16_Backbone(nn.Module):
             nn.Dropout(dropout)  
         )
         
-        #self.attn_temp = nn.Parameter(torch.tensor(1.0))
-        #self.alpha_spatial = nn.Sequential(
-        #    nn.Linear(hidden_dim, hidden_dim//2),
-        #    nn.GELU(),
-        #    nn.Linear(hidden_dim//2, 1)
-        #)
-        #self.alpha_head    = nn.Linear(self.hidden_dim, 1)  # mapping attended context to a scalar
-        
-        self.attn_u = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.attn_v = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.attn_w = nn.Linear(self.hidden_dim, 1, bias=False)
+        self.attn_u = nn.Linear(self.hidden_dim, embed_dim, bias=False)
+        self.attn_v = nn.Linear(self.hidden_dim, embed_dim, bias=False)
+        self.attn_w = nn.Linear(embed_dim, 1, bias=False)
         
         freeze_until_idx = {
             'encoder_layer_0': 0, 'encoder_layer_2': 2, 'encoder_layer_4': 4,
@@ -100,33 +92,27 @@ class ViT_L_16_Backbone(nn.Module):
         x = x + self.backbone.encoder.pos_embedding
         x = self.backbone.encoder.dropout(x)
         
-        #x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
+        x = self.backbone.encoder.ln(self.backbone.encoder.layers(x)) # faster
         
         #for layer in self.backbone.encoder.layers: # less vram
         #    x = checkpoint(layer, x, use_reentrant=False)
         #x = self.backbone.encoder.ln(x)
 
-        for i, layer in enumerate(self.backbone.encoder.layers):
-            if self.training and torch.rand(1).item() < self.drop_rates[i]:
-                x = x  # skip residual, keep identity
-            else:
-                x = checkpoint(layer, x, use_reentrant=False) 
+        #for i, layer in enumerate(self.backbone.encoder.layers):
+            #if self.training and torch.rand(1).item() < self.drop_rates[i]:
+            #    x = x  # skip residual, keep identity
+            #else:
+            #    x = checkpoint(layer, x, use_reentrant=False) 
+            #x = checkpoint(layer, x, use_reentrant=False) 
         
         cls_token = x[:, 0]
         embed = self.proj(cls_token)       # for classification
         
         spatial  = x[:, 1:]                                        # (N, S, hidden_dim)
-        
-        #scores   = F.softmax(self.alpha_spatial(spatial) / self.attn_temp.clamp(min=0.1),
-        #                     dim=1)   # (N, S, 1)
-        #scores   = F.softmax(self.alpha_spatial(spatial), dim=1)   # (N, S, 1)
-        
         scores  = self.attn_w(
             torch.tanh(self.attn_v(spatial)) * torch.sigmoid(self.attn_u(spatial))
         ) # (N, H*W, 1)
-        
-        
         context  = (scores * spatial).sum(dim=1) # (N, hidden_dim)
         context = self.proj2(context)
-        #alpha    = self.alpha_head(context)                        # (N, 1)
+        
         return context, embed

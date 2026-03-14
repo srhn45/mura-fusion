@@ -19,6 +19,7 @@ from architectures.classifier import Classifier
 from helpers.patientdataset import load_df, make_loader
 from helpers.checkpoint import save_checkpoint, load_checkpoint
 from helpers.trainer import fit
+from helpers.reporter import Reporter
 
 warnings.filterwarnings("ignore", message="Mismatch dtype between input and weight")
 
@@ -29,10 +30,10 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 
 DATA_DIR          = "data/MURA-v1.1"
 PARENT_DIR        = "data"
-CHECKPOINT        = "models/best_model_vit_l_16.pt"
+CHECKPOINT        = "models/vit_l_16/best_model_vit_l_16.pt"
 BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="encoder_layer_0", dropout=0.1, finetune_input=True)
 CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
-FIT_KWARGS        = dict(n_epochs=30, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
+FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
 # ── Resume (comment out to train from scratch) ────────────────────────────────
 #RESUME_FROM     = "models/best_model_vit_l_16.pt"
@@ -90,8 +91,17 @@ print(f"Initially trainable params: {trainable_params:,}")
 
 # ── Train ─────────────────────────────────────────────────────────────────────
 
+reporter = Reporter(
+    checkpoint_path  = CHECKPOINT,
+    model_name       = "ViT-L/16",
+    backbone_kwargs  = BACKBONE_KWARGS,
+    classifier_kwargs= CLASSIFIER_KWARGS,
+    fit_kwargs       = FIT_KWARGS,
+)
+
 model = fit(model, train_loader, val_loader,
             unfreeze_groups=unfreeze_groups,
             checkpoint_path=CHECKPOINT,
             save_fn=save_fn,
+            reporter=reporter,
             **FIT_KWARGS)

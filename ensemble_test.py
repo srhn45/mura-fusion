@@ -104,7 +104,7 @@ preds = np.array([int(ensemble_probs[i] > best_thresh[categories[i]])
 # ── Report ────────────────────────────────────────────────────────────────────
 
 print("\n" + "=" * 60)
-print(f"  ENSEMBLE REPORT  ({len(MODELS)} model(s), TTA={'on' if TTA_FLIP else 'off'})")
+print(f"  ENSEMBLE REPORT  ({len(MODELS)} model(s), TTA={'on' if TTA else 'off'})")
 print("=" * 60)
 
 print(f"\n  Global k (t=0.50): {cohen_kappa_score(labels, (ensemble_probs>0.5).astype(int)):.4f}")

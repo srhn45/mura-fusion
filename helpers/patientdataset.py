@@ -7,6 +7,16 @@ from torch.utils.data import Dataset, DataLoader
 
 from helpers.augments import make_transform
 
+def compute_pos_weights(csv_path, data_dir, categories):
+    df = load_df(csv_path, data_dir)
+    weights = {}
+    for cat in categories:
+        cat_df = df[df['category'] == cat]
+        neg = (cat_df['label'] == 0).sum()
+        pos = (cat_df['label'] == 1).sum()
+        weights[cat] = neg / pos if pos > 0 else 1.0
+    return weights
+
 def load_df(csv_name, data_dir):
     df = pd.read_csv(os.path.join(data_dir, csv_name), dtype=str, header=None, names=["image_path"])
     df["label"]     = df["image_path"].str.contains("positive").astype(int)

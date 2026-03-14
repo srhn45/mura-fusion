@@ -18,8 +18,11 @@ from architectures.classifier import Classifier
 from helpers.patientdataset import load_df, make_loader
 from helpers.checkpoint import save_checkpoint, load_checkpoint
 from helpers.trainer import fit
+from helpers.reporter import Reporter
 
 warnings.filterwarnings("ignore", message="Mismatch dtype between input and weight")
+warnings.filterwarnings("ignore", message="Online softmax is disabled")
+warnings.filterwarnings("ignore", message="Not enough SMs")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -28,26 +31,22 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 
 DATA_DIR          = "data/MURA-v1.1"
 PARENT_DIR        = "data"
-CHECKPOINT        = "models/best_model_convnext_l.pt"
-BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="stage0", dropout=0.1, finetune_input=False)
+CHECKPOINT        = "models/convnext_l/best_model_convnext_l.pt"
+BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="stage0", dropout=0.1, finetune_input=True)
 CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
-FIT_KWARGS        = dict(
-    n_epochs=50, lr=1e-4, pos_weight=1.47,
-    unfreeze_patience=3, unfreeze_lr_scale=0.1,
-    weight_decay=1e-3,
-)
+FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
 # ── Resume (comment out to train from scratch) ────────────────────────────────
-# RESUME_FROM = "models/best_model_convnext_l.pt"
+RESUME_FROM       = "models/convnext_l/best_model_convnext_l.pt"
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
-                           parent_dir=PARENT_DIR, size=384, batch_size=8,
+                           parent_dir=PARENT_DIR, size=384, batch_size=10,
                            shuffle=True, num_workers=2, pin_memory=True,
                            drop_last=True, persistent_workers=False)
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
-                           parent_dir=PARENT_DIR, size=384, batch_size=8,
+                           parent_dir=PARENT_DIR, size=384, batch_size=10,
                            shuffle=False, num_workers=2, pin_memory=True,
                            persistent_workers=False)
 
@@ -62,11 +61,11 @@ except NameError:
     model    = Classifier(backbone, **CLASSIFIER_KWARGS)
 
 unfreeze_groups = [
-    backbone.backbone.stages[3],   # stage3 — last, unfreezes first
-    backbone.backbone.stages[2],   # stage2
-    backbone.backbone.stages[1],   # stage1
-    backbone.backbone.stages[0],   # stage0
-    backbone.backbone.stem,        # stem (input conv)
+    backbone.backbone.stages[3],
+    backbone.backbone.stages[2],
+    backbone.backbone.stages[1],
+    backbone.backbone.stages[0],
+    backbone.backbone.stem,
 ]
 
 def save_fn(model):
@@ -81,8 +80,18 @@ print(f"Initially trainable params: {trainable_params:,}")
 
 # ── Train ─────────────────────────────────────────────────────────────────────
 
+reporter = Reporter(
+    checkpoint_path   = CHECKPOINT,
+    model_name        = "ConvNeXt-L",
+    backbone_kwargs   = BACKBONE_KWARGS,
+    classifier_kwargs = CLASSIFIER_KWARGS,
+    fit_kwargs        = FIT_KWARGS,
+)
+
 model = fit(model, train_loader, val_loader,
             unfreeze_groups=unfreeze_groups,
             checkpoint_path=CHECKPOINT,
             save_fn=save_fn,
+            reporter=reporter,
+            resume=True,
             **FIT_KWARGS)
