@@ -11,9 +11,10 @@ def cleanup(sig, frame):
 signal.signal(signal.SIGINT,  cleanup)
 signal.signal(signal.SIGTERM, cleanup)
 # ──────────────────────────────────────────────────────────────────────────────
+import os
 import torch
 import warnings
-from architectures.resnet152 import ResNet152_Backbone
+from architectures.nfnet_f4 import NFNet_F4_Backbone
 from architectures.classifier import Classifier
 from helpers.patientdataset import load_df, make_loader
 from helpers.checkpoint import save_checkpoint, load_checkpoint
@@ -31,13 +32,13 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 
 DATA_DIR          = "data/MURA-v1.1"
 PARENT_DIR        = "data"
-CHECKPOINT        = "models/resnet152/best_model_resnet152.pt"
-BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="layer0", dropout=0.1, finetune_input=True)
+CHECKPOINT        = "models/nfnet_f4/best_model_nfnet_f4.pt"
+BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="stage0", dropout=0.1, finetune_input=True)
 CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
 # ── Resume (comment out to train from scratch) ────────────────────────────────
-RESUME_FROM = "models/resnet152/best_model_resnet152.pt"
+# RESUME_FROM = "models/nfnet_f4/best_model_nfnet_f4.pt"
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -52,20 +53,20 @@ val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=F
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 
-import os
 if "RESUME_FROM" in dir() and os.path.exists(RESUME_FROM):
     model, ckpt_config = load_checkpoint(RESUME_FROM, device="cuda")
     backbone = model.backbone
     print(f"Resumed from {RESUME_FROM}")
 else:
-    backbone = ResNet152_Backbone(**BACKBONE_KWARGS)
+    backbone = NFNet_F4_Backbone(**BACKBONE_KWARGS)
     model    = Classifier(backbone, **CLASSIFIER_KWARGS)
 
 unfreeze_groups = [
-    backbone.backbone[7],  # layer4
-    backbone.backbone[6],  # layer3
-    backbone.backbone[5],  # layer2
-    backbone.backbone[4],  # layer1
+    backbone.backbone.stages[3],
+    backbone.backbone.stages[2],
+    backbone.backbone.stages[1],
+    backbone.backbone.stages[0],
+    backbone.backbone.stem,
 ]
 
 def save_fn(model):
@@ -82,7 +83,7 @@ print(f"Initially trainable params: {trainable_params:,}")
 
 reporter = Reporter(
     checkpoint_path   = CHECKPOINT,
-    model_name        = "ResNet-152",
+    model_name        = "NFNet-F4",
     backbone_kwargs   = BACKBONE_KWARGS,
     classifier_kwargs = CLASSIFIER_KWARGS,
     fit_kwargs        = FIT_KWARGS,

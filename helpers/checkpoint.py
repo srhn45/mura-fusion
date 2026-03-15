@@ -26,6 +26,7 @@ def load_checkpoint(path, device="cpu"):
     import architectures.convnext_l
     import architectures.vit_l_16
     import architectures.resnet152
+    import architectures.convnext_xl
     
     ckpt = torch.load(path, map_location=device)
     config = ckpt["config"]
