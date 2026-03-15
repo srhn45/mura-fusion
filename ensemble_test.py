@@ -21,9 +21,9 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 # Each entry: (checkpoint_path, input_size, weight)
 # weight is per-model global, for per-category weighting fill PER_CAT_WEIGHTS
 MODELS = [
-    ("models/best_model_convnext_l.pt",  384, 0.699),
-    #("models/best_model_vit_l_16.pt",    224, 0.661),
-    #("models/best_model_resnet152.pt",   512, 0.650),
+    ("models/convnext_l/best_model_convnext_l.pt",  384, 0.739),
+    ("models/vit_l_16/best_model_vit_l_16.pt",    224, 0.651),
+    ("models/resnet152/best_model_resnet152.pt",   512, 0.633),
 ]
 
 # Optional per-category weights (n_models, n_categories), same order as MODELS/CATEGORIES
@@ -35,7 +35,7 @@ MODELS = [
 #]
 PER_CAT_WEIGHTS = None
 
-TTA = False   #test-time augmentation
+TTA = True   #test-time augmentation
 
 THRESH_RANGE = np.arange(0.20, 0.81, 0.01)
 

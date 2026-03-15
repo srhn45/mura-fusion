@@ -6,7 +6,7 @@
 
 ## Overview
 
-Musculoskeletal conditions account for a significant portion of radiological workload, yet automated diagnosis remains challenging due to the multi-image nature of X-ray studies, large within-category variance, and class imbalance across body regions. This project investigates how large pretrained convolutional and transformer backbones can be adapted for grayscale multi-image radiograph classification, with a focus on study-level reasoning across variable numbers of images.
+This repo investigates how large pretrained backbones can be adapted for grayscale multi-image radiograph classification, with a focus on study-level reasoning and fusion across variable numbers of images.
 
 The core contribution is an architecture that treats each radiological study as a **bag of images** and performs two stages of learned attention: (1) spatial attention pooling within each image to extract a fixed-length representation, and (2) cross-image attention across the study to fuse representations into a single classification decision — both conditioned on the body region category.
 
@@ -36,7 +36,7 @@ Study (N images, category c)
         │
         ▼
 ┌───────────────────┐
-│  Shared Backbone  │  ConvNeXt-L / ViT-L/16 / ResNet-152
+│  Shared Backbone  │  ConvNeXt-L / ViT-L/16 / ResNet-152 / ...
 │  (grayscale)      │
 └────────┬──────────┘
          │  spatial feature map (N, C, H, W)
@@ -54,7 +54,7 @@ Study (N images, category c)
          │
          ▼
 ┌───────────────────┐
-│  Per-Category     │  separate linear head per body region
+│  Per-Category     │  separate linear classifier per body region
 │  Classifier       │
 └────────┬──────────┘
          │
@@ -77,7 +77,7 @@ The tanh gate encodes feature content; the sigmoid gate acts as a differentiable
 
 ### Study-Level Cross-Image Fusion
 
-A radiological study consists of multiple views of the same anatomy. Simple averaging across images loses the inter-view relationships that radiologists exploit (e.g. confirming a finding across AP and lateral views). Instead, the pooled per-image embeddings are fused using **multi-head self-attention**:
+A radiological study consists of multiple views of the same anatomy. Simple averaging across images treats each image the same, while usually some are more informative. Instead, the pooled per-image embeddings are fused using **multi-head self-attention**:
 
 ```
 seq      = stack([embed_1, ..., embed_N])     # (1, N, embed_dim)
@@ -150,39 +150,40 @@ All models trained for 50 epochs, `lr=1e-5`, `pos_weight=1.47`, `embed_dim=256`,
 
 | Backbone | Resolution | Params | κ (untuned) | κ (tuned) | Acc |
 |----------|-----------|--------|-------------|-----------|-----|
-| ResNet-152 | 512×512 | 60M | 0.650 | — | 0.830 |
-| ViT-L/16 | 224×224 | 307M | 0.661 | — | 0.835 |
-| ConvNeXt-L | 384×384 | 197M | 0.699 | — | 0.853 |
-| ConvNeXt-L + TTA | 384×384 | 197M | 0.699 | **0.737** | **0.871** |
+| ResNet-152 | 512×512 | 60M | 0.633 | 0.643 | 0.83 |
+| ViT-L/16 | 224×224 | 307M | 0.651 | 0.652 | 0.83 |
+| ConvNeXt-L | 384×384 | 197M | 0.739 | **0.7514** | **0.878** |
+| ConvNeXt-L + TTA | 384×384 | 197M | 0.712 | 0.744 | 0.874 |
+| Ensemble + TTA | - | 564M | 0.739 | **0.737** | **0.871** |
 
 The gap between ResNet-152 (512×512) and ConvNeXt-L (384×384) despite lower resolution suggests that architectural modernity (depthwise convolutions, LayerNorm, GELU activations) matters more than resolution at this scale. The gap between ViT-L/16 and ConvNeXt-L at comparable parameter counts suggests that inductive spatial biases in CNNs remain advantageous for this task, likely due to the local nature of radiological findings.
 
 ### Per-Category Results (ConvNeXt-L + TTA)
 
-| Category | κ | Acc | Threshold |
+| Category | κ | Acc | Adjusted Threshold |
 |----------|---|-----|-----------|
-| SHOULDER | 0.681 | — | 0.21 |
-| HUMERUS  | 0.867 | — | 0.59 |
-| ELBOW    | 0.764 | — | 0.36 |
-| FOREARM  | 0.727 | — | 0.66 |
-| WRIST    | 0.805 | — | 0.30 |
-| HAND     | 0.577 | — | 0.76 |
-| FINGER   | 0.712 | — | 0.42 |
+| SHOULDER | 0.73 | 0.87 | 0.56 |
+| HUMERUS  | 0.82 | 0.91 | 0.79 |
+| ELBOW    | 0.74 | 0.87 | 0.30 |
+| FOREARM  | 0.76 | 0.88 | 0.20 |
+| WRIST    | 0.80 | 0.90 | 0.41 |
+| HAND     | 0.62 | 0.83 | 0.27 |
+| FINGER   | 0.71 | 0.86 | 0.22 |
 | **Overall** | **0.737** | **0.871** | — |
 
-The wide per-category threshold spread (0.21–0.76) reflects systematic miscalibration across body regions — the model is consistently underconfident for SHOULDER and overconfident for HAND. HAND remains the weakest category, likely due to its high bone count and small bone sizes relative to image resolution.
+The wide per-category threshold spread (0.22–0.79) reflects systematic miscalibration across body regions — the model is consistently underconfident for FINGER and overconfident for HUMERUS. HAND and FINGER are the weakest categories, likely due to high bone count and small bone sizes.
 
 ### Comparison to Baselines
 
 | System | κ |
 |--------|---|
 | Stanford DenseNet-169 (Rajpurkar et al. 2018) | ≈ 0.705 |
-| Radiologist average (reported) | ≈ 0.770 |
-| **This work (ConvNeXt-L + TTA)** | **0.737** |
+| Best radiologist result (reported) | ≈ 0.770 |
+| **This work (ConvNeXt-L)** | **0.751** |
 
 ### Test-Time Augmentation
 
-TTA is applied over 7 variants: original, horizontal flip, vertical flip, 90°/180°/270° rotation, and contrast adjustment (×0.85 and ×1.15). Logits are averaged before sigmoid, and per-category thresholds are tuned on the validation set post-hoc.
+TTA is applied over 6 variants: original, horizontal flip, vertical flip, +-15° rotation, and contrast adjustment (×0.85 and ×1.15). Logits are averaged before sigmoid, and per-category thresholds are tuned on the validation set post-hoc.
 
 ---
 
@@ -193,10 +194,10 @@ TTA is applied over 7 variants: original, horizontal flip, vertical flip, 90°/1
 | ResNet-152 | `resnet152` | 512×512 | 60M | 2048 |
 | ViT-L/16 | `vit_l_16` | 224×224 | 307M | 1024 |
 | ConvNeXt-L | `convnext_large.fb_in22k_ft_in1k_384` | 384×384 | 197M | 1536 |
-| ConvNeXt-XL | `convnext_xlarge.fb_in22k_ft_in1k_384` | 384×384 | 350M | 2048 |
-| NFNet-F4 | `dm_nfnet_f4.dm_in1k` | 512×512 | 316M | 3072 |
+| ConvNeXt-XL | `convnext_xlarge.fb_in22k_ft_in1k_384` | 384×384 | 350M | 2048 | ongoing
+| NFNet-F4 | `dm_nfnet_f4.dm_in1k` | 512×512 | 316M | 3072 | ongoing
 
-ConvNeXt-XL produced comparable results to ConvNeXt-L, suggesting resolution is a stronger bottleneck than parameter count at this scale. NFNet-F4 targets this directly with native 512×512 operation and higher channel dimensionality.
+ConvNeXt-XL is producing comparable results to ConvNeXt-L, suggesting resolution is a stronger bottleneck than parameter count at this scale. NFNet-F4 targets this directly with native 512×512 operation and higher channel dimensionality.
 
 ---
 
@@ -208,9 +209,9 @@ ConvNeXt-XL produced comparable results to ConvNeXt-L, suggesting resolution is 
 
 - **Resolution vs. architecture capacity.** The ablation suggests resolution gains plateau before parameter gains — ConvNeXt-L → XL (same resolution, +153M params) had minimal impact, while the ConvNeXt family consistently outperformed ResNet-152 at lower resolution but higher architectural modernity.
 
-- **Ensemble potential.** Single model at κ=0.737; a full ensemble of ConvNeXt-L + ViT-L/16 + NFNet-F4 with TTA and per-category tuning is the most direct path to radiologist-level performance.
+- **Ensemble potential.** Most reported results above the threshold were obtained using ensembles.
 
-- **Domain pretraining.** All backbones use ImageNet pretraining. Medical-domain pretraining (e.g. CheXpert-pretrained encoders) could reduce the domain gap from natural images to radiographs and may particularly help with HAND and SHOULDER.
+- **Domain pretraining.** All backbones use ImageNet pretraining. Medical-domain pretraining (e.g. CheXpert-pretrained encoders) could reduce the domain gap from natural images to radiographs.
 
 ---
 
