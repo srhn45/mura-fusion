@@ -1,6 +1,6 @@
 # Multi-Image Attention Fusion for Musculoskeletal Abnormality Detection
 
-> Automated detection of musculoskeletal abnormalities in X-ray studies using gated spatial attention pooling, study-level multi-image fusion, and per-category classification heads. Best single model achieves **κ = 0.737** on MURA, exceeding the Stanford DenseNet-169 baseline (κ ≈ 0.705) and approaching reported radiologist-level agreement (κ ≈ 0.77).
+> Automated detection of musculoskeletal abnormalities in X-ray studies using gated spatial attention pooling, study-level multi-image fusion, and per-category classification heads. Best single model achieves **κ = 0.739** on MURA without tuning, exceeding the Stanford DenseNet-169 baseline (κ ≈ 0.705) and approaching reported radiologist-level agreement (κ ≈ 0.77).
 
 ---
 
@@ -146,6 +146,8 @@ Applied per-step, with each parameter group's effective LR scaled by its `lr_sca
 
 ### Backbone Ablation
 
+Note: threshold tuning was done on the test set to understand model biases, untuned kappa is a better metric for accuracy.
+
 All models trained for 50 epochs, `lr=1e-5`, `pos_weight=1.47`, `embed_dim=256`, with identical classifier heads. Resolution is backbone-native pretrained resolution.
 
 | Backbone | Resolution | Params | κ (untuned) | κ (tuned) | Acc |
@@ -169,7 +171,7 @@ The gap between ResNet-152 (512×512) and ConvNeXt-L (384×384) despite lower re
 | WRIST    | 0.80 | 0.90 | 0.41 |
 | HAND     | 0.62 | 0.83 | 0.27 |
 | FINGER   | 0.71 | 0.86 | 0.22 |
-| **Overall** | **0.737** | **0.871** | — |
+| **Overall** | **0.744** | **0.874** | — |
 
 The wide per-category threshold spread (0.22–0.79) reflects systematic miscalibration across body regions — the model is consistently underconfident for FINGER and overconfident for HUMERUS. HAND and FINGER are the weakest categories, likely due to high bone count and small bone sizes.
 
