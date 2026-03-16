@@ -43,11 +43,11 @@ FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patienc
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
-                           parent_dir=PARENT_DIR, size=512, batch_size=10,
+                           parent_dir=PARENT_DIR, size=512, batch_size=4,
                            shuffle=True, num_workers=2, pin_memory=True,
                            drop_last=True, persistent_workers=False)
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
-                           parent_dir=PARENT_DIR, size=512, batch_size=10,
+                           parent_dir=PARENT_DIR, size=512, batch_size=4,
                            shuffle=False, num_workers=2, pin_memory=True,
                            persistent_workers=False)
 
