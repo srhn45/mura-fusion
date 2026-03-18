@@ -37,7 +37,7 @@ CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
 # ── Resume (comment out to train from scratch) ────────────────────────────────
-RESUME_FROM       = "models/convnext_l/best_model_convnext_l.pt"
+# RESUME_FROM       = "models/convnext_l/best_model_convnext_l.pt"
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 

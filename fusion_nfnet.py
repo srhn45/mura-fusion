@@ -38,16 +38,16 @@ CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
 # ── Resume (comment out to train from scratch) ────────────────────────────────
-# RESUME_FROM = "models/nfnet_f4/best_model_nfnet_f4.pt"
+RESUME_FROM = "models/nfnet_f4/best_model_nfnet_f4.pt"
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
-                           parent_dir=PARENT_DIR, size=512, batch_size=4,
+                           parent_dir=PARENT_DIR, size=512, batch_size=3,
                            shuffle=True, num_workers=2, pin_memory=True,
                            drop_last=True, persistent_workers=False)
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
-                           parent_dir=PARENT_DIR, size=512, batch_size=4,
+                           parent_dir=PARENT_DIR, size=512, batch_size=3,
                            shuffle=False, num_workers=2, pin_memory=True,
                            persistent_workers=False)
 
