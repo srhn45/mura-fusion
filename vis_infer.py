@@ -205,8 +205,9 @@ def visualize_study(images_tensor, spatial_weights, gradcam_weights, cross_weigh
     used_in_last_row = N % studies_per_row or studies_per_row
     for j in range(used_in_last_row, studies_per_row):
         for c in [j * 2, j * 2 + 1]:
-            ax = fig.add_subplot(gs[n_study_rows - 1, c])
-            ax.set_visible(False)
+            if c < ncols:   # ← guard
+                ax = fig.add_subplot(gs[n_study_rows - 1, c])
+                ax.set_visible(False)
 
     # fusion weight bar chart
     ax_bar = fig.add_subplot(gs[nrows - 1, :])
