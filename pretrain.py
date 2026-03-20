@@ -1,3 +1,7 @@
+'''
+uv run pretrain.py --msk-only
+'''
+
 import argparse, math, random
 from pathlib import Path
 
@@ -17,8 +21,9 @@ from tqdm.auto import tqdm
 DATA_DIRS = {
     # MURA: normal only — abnormal images would corrupt the "what should be here" prior
     "mura_normal": ["data/MURA-v1.1"],
-    "msk":         ["data/rsna_bone_age", "data/fracatlas",
-                    "data/fracture_msk", "data/stanford_bone_age"],
+    "msk":         ["data/rsna_bone_age", "data/fracatlas", "data/fracatlas_orig",
+                    "data/fracture_msk", "data/stanford_bone_age",
+                    "data/grazpedwri", "data/knee_oa"],
     "cxr":         ["data/nih_chest_xray14", "data/chexpert"],
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
@@ -45,27 +50,27 @@ class XRayDataset(Dataset):
             T.Grayscale(), T.Resize((size, size)), T.ToTensor(),
             T.Normalize(mean=[0.449], std=[0.226])
         ])
+        self.aug = T.Compose([
+            T.Grayscale(), T.Resize((size, size)),
+            T.RandomHorizontalFlip(p=0.5),
+            T.RandomVerticalFlip(p=0.2),
+            T.RandomAffine(degrees=25, translate=(0.1, 0.1), scale=(0.8, 1.2)),
+            T.RandomAdjustSharpness(2, p=0.4),
+            T.RandomAutocontrast(p=0.4),
+            T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.449], std=[0.226])
+        ])
         print(f"  Dataset: {len(self.paths):,} images from {len(roots)} dirs")
 
     def __len__(self):  return len(self.paths)
 
     def __getitem__(self, i):
         try:
-            return self.transform(Image.open(self.paths[i]).convert("L"))
+            img = Image.open(self.paths[i]).convert("L")
+            return self.transform(img), self.aug(img)
         except Exception:
             return self[random.randint(0, len(self) - 1)]
-
-# ── Augmentation ───────────────────────────────────────────────────────────────
-
-# Heavy augmentation for consistency branch — the encoder must be invariant to these
-STRONG_AUG = T.Compose([
-    T.RandomHorizontalFlip(p=0.5),
-    T.RandomVerticalFlip(p=0.2),
-    T.RandomAffine(degrees=25, translate=(0.1, 0.1), scale=(0.8, 1.2)),
-    T.RandomAdjustSharpness(2, p=0.4),
-    T.RandomAutocontrast(p=0.4),
-    T.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
-])
 
 # ── Patch masking ──────────────────────────────────────────────────────────────
 
@@ -73,10 +78,8 @@ def mask_patches(x, patch_size=32, mask_ratio=0.75):
     B, C, H, W = x.shape
     ph, pw     = H // patch_size, W // patch_size
     n_patches  = ph * pw
-    n_mask     = int(n_patches * mask_ratio)
-    mask = torch.zeros(B, n_patches, device=x.device)
-    for b in range(B):
-        mask[b, torch.randperm(n_patches)[:n_mask]] = 1.0
+    rand    = torch.rand(B, n_patches, device=x.device)
+    mask    = (rand < mask_ratio).float()
     mask_2d = mask.reshape(B, 1, ph, pw)
     mask_2d = mask_2d.repeat_interleave(patch_size, dim=2).repeat_interleave(patch_size, dim=3)
     return x * (1 - mask_2d), mask_2d
@@ -90,12 +93,20 @@ class MAEDecoder(nn.Module):
     """
     def __init__(self, in_channels, out_size):
         super().__init__()
-        self.proj    = nn.Conv2d(in_channels, 64, kernel_size=1)
-        self.out     = nn.Conv2d(64, 1, kernel_size=3, padding=1)
+        self.proj    = nn.Conv2d(in_channels, 512, kernel_size=3, padding=1, bias=False)
+        self.proj1    = nn.Conv2d(512, 256, kernel_size=3, padding=1, bias=False)
+        self.proj2    = nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False)
+        self.out     = nn.Conv2d(128, 1, kernel_size=3, padding=1, bias=False)
         self.out_size = out_size
+        
+        self.up = nn.Upsample(scale_factor=2)
 
     def forward(self, x):
-        x = F.gelu(self.proj(x))
+        x = self.up(F.gelu(self.proj(x)))
+        x = self.up(F.gelu(self.proj1(x)))
+        x = self.up(F.gelu(self.proj2(x)))
+        x = self.up(F.gelu(self.proj3(x)))
+        
         x = F.interpolate(x, size=(self.out_size, self.out_size),
                           mode="bilinear", align_corners=False)
         return self.out(x)
@@ -116,7 +127,7 @@ def denorm(t):
 @torch.no_grad()
 def save_recon_grid(model, dataset, patch_size, mask_ratio, epoch, out_dir, device, n=5):
     model.eval()
-    imgs      = torch.stack([dataset[i] for i in random.sample(range(len(dataset)), n)]).to(device)
+    imgs      = torch.stack([dataset[i][0] for i in random.sample(range(len(dataset)), n)]).to(device)
     masked, _ = mask_patches(imgs, patch_size, mask_ratio)
     recon     = model["decoder"](model["encoder"](masked))
 
@@ -151,7 +162,7 @@ def main():
     parser.add_argument("--size",        type=int,   default=384)
     parser.add_argument("--patch-size",  type=int,   default=32)
     parser.add_argument("--mask-ratio",  type=float, default=0.75)
-    parser.add_argument("--epochs",      type=int,   default=200)
+    parser.add_argument("--epochs",      type=int,   default=2)
     parser.add_argument("--batch-size",  type=int,   default=16)
     parser.add_argument("--lr",          type=float, default=1e-4)
     parser.add_argument("--consist-lam", type=float, default=0.05,
@@ -236,21 +247,21 @@ def main():
     warmup_steps = min(1000, total_steps // 20)
     log(f"  total steps: {total_steps:,}  warmup: {warmup_steps:,}\n")
 
+    log_every = max(1, len(loader) // 10)
+
     # ── train ─────────────────────────────────────────────────────────────────
     for epoch in tqdm(range(start_epoch, args.epochs + 1), desc="Pretraining"):
         model.train()
         epoch_loss = epoch_recon = epoch_consist = 0.0
+        window_loss = window_recon = window_consist = 0.0
         n_batches  = 0
 
         pbar = tqdm(loader, desc=f"Epoch {epoch:03d}", leave=False)
-        for x in pbar:
-            x = x.to(device)
+        for x, x_aug in pbar:
+            x     = x.to(device)
+            x_aug = x_aug.to(device)
 
-            # view 1: masked for reconstruction
             x_masked, mask = mask_patches(x, args.patch_size, args.mask_ratio)
-
-            # view 2: heavily augmented (on cpu, then to device)
-            x_aug = torch.stack([STRONG_AUG(xi.cpu()) for xi in x]).to(device)
 
             with autocast(device_type="cuda"):
                 feats1 = model["encoder"](x_masked)
@@ -260,8 +271,7 @@ def main():
                 loss_recon  = (F.mse_loss(recon, x, reduction="none") * mask).sum() \
                               / (mask.sum() + 1e-6)
 
-                # consistency: global-pooled representations should agree
-                f1 = feats1.mean(dim=(2, 3))  # (B, C)
+                f1 = feats1.mean(dim=(2, 3))
                 f2 = feats2.mean(dim=(2, 3))
                 loss_consist = 1 - F.cosine_similarity(f1, f2).mean()
 
@@ -278,36 +288,43 @@ def main():
             lr = get_lr(step, args.lr, warmup_steps, total_steps)
             for pg in optimizer.param_groups: pg["lr"] = lr
 
-            epoch_loss    += loss.item()
-            epoch_recon   += loss_recon.item()
-            epoch_consist += loss_consist.item()
-            n_batches     += 1
+            epoch_loss     += loss.item()
+            epoch_recon    += loss_recon.item()
+            epoch_consist  += loss_consist.item()
+            window_loss    += loss.item()
+            window_recon   += loss_recon.item()
+            window_consist += loss_consist.item()
+            n_batches      += 1
+
             pbar.set_postfix(recon=f"{loss_recon.item():.4f}",
                              consist=f"{loss_consist.item():.4f}",
                              lr=f"{lr:.2e}")
 
+            if n_batches % log_every == 0:
+                frac = n_batches / len(loader)
+                log(f"  [{epoch:03d} {frac:5.1%}] "
+                    f"recon {window_recon/log_every:.4f}  "
+                    f"consist {window_consist/log_every:.4f}  "
+                    f"total {window_loss/log_every:.4f}  lr {lr:.2e}")
+                window_loss = window_recon = window_consist = 0.0
+                torch.save({
+                    "epoch": epoch, "step": step, "loss": epoch_loss / n_batches,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "backbone": args.backbone,
+                }, OUT_DIR / "mae_checkpoint.pt")
+
+                grid_path = save_recon_grid(model, dataset, args.patch_size,
+                                            args.mask_ratio, epoch, n_batches, viz_dir, device)
+                log(f"  ↳ recon grid -> {grid_path}")
+                model.train()
+
         avg_loss    = epoch_loss    / n_batches
         avg_recon   = epoch_recon   / n_batches
         avg_consist = epoch_consist / n_batches
-        log(f"Epoch {epoch:03d} | loss {avg_loss:.4f} "
+        log(f"Epoch {epoch:03d} DONE | loss {avg_loss:.4f} "
             f"| recon {avg_recon:.4f}  consist {avg_consist:.4f} | lr {lr:.2e}")
-
-        if epoch % 5 == 0 or epoch == 1:
-            grid_path = save_recon_grid(model, dataset, args.patch_size,
-                                        args.mask_ratio, epoch, viz_dir, device)
-            log(f"  ↳ recon grid → {grid_path}")
-            model.train()
-
-        if epoch % 10 == 0 or epoch == args.epochs:
-            ckpt_path = OUT_DIR / "mae_checkpoint.pt"
-            torch.save({
-                "epoch": epoch, "step": step, "loss": avg_loss,
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scaler": scaler.state_dict(),
-                "backbone": args.backbone,
-            }, ckpt_path)
-            log(f"  ↳ checkpoint saved (epoch {epoch})")
 
     encoder_path = OUT_DIR / f"mae_encoder_{Path(args.backbone).stem}.pt"
     torch.save(model["encoder"].state_dict(), encoder_path)

@@ -7,18 +7,20 @@ import sys
 import shutil
 import argparse
 from pathlib import Path
-import kaggle
 
 DATA_ROOT = Path("data")
 
 DIRS = {
-    "rsna":          DATA_ROOT / "rsna_bone_age",
-    "nih":           DATA_ROOT / "nih_chest_xray14",
-    "chexpert":      DATA_ROOT / "chexpert",
-    "fracatlas":     DATA_ROOT / "fracatlas",
-    "fracture_msk":  DATA_ROOT / "fracture_msk",
-    "stanford":      DATA_ROOT / "stanford_bone_age",
-    "mura":          DATA_ROOT / "MURA-v1.1",
+    "rsna":           DATA_ROOT / "rsna_bone_age",
+    "nih":            DATA_ROOT / "nih_chest_xray14",
+    "chexpert":       DATA_ROOT / "chexpert",
+    "fracatlas":      DATA_ROOT / "fracatlas",
+    "fracatlas_orig": DATA_ROOT / "fracatlas_orig",
+    "fracture_msk":   DATA_ROOT / "fracture_msk",
+    "stanford":       DATA_ROOT / "stanford_bone_age",
+    "grazpedwri":     DATA_ROOT / "grazpedwri",
+    "knee_oa":        DATA_ROOT / "knee_oa",
+    "mura":           DATA_ROOT / "MURA-v1.1",
 }
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
@@ -41,11 +43,22 @@ def verify_dataset(name, directory, expected_min):
     print(f"  {'✓' if ok else '✗'}  {name:<35} {n:>8,} images  (expected ≥ {expected_min:,})")
     return ok
 
+def check_kaggle():
+    try:
+        import kaggle  # noqa
+    except ImportError:
+        print("  ✗  kaggle not installed. Run: pip install kaggle")
+        return False
+    return True
+
 def kaggle_download(dataset_slug, dest: Path, expected_min: int, size_hint: str):
     """Download a Kaggle dataset and flatten images into dest/images/."""
     if count_images(dest) >= expected_min:
         print(f"  ✓  Already downloaded ({count_images(dest):,} images)")
         return True
+
+    if not check_kaggle():
+        return False
 
     dest.mkdir(parents=True, exist_ok=True)
     tmp = DATA_ROOT / f"_tmp_{dest.name}"
@@ -63,11 +76,9 @@ def kaggle_download(dataset_slug, dest: Path, expected_min: int, size_hint: str)
     moved = 0
     for img in tmp.rglob("*"):
         if img.suffix.lower() in IMAGE_EXTS:
-            # preserve relative path as flat name to avoid collisions
-            # e.g. patient1/study1/frontal.jpg → patient1_study1_frontal.jpg
-            rel = img.relative_to(tmp)
+            rel       = img.relative_to(tmp)
             safe_name = "_".join(rel.parts)
-            target = images_out / safe_name
+            target    = images_out / safe_name
             if not target.exists():
                 shutil.copy2(img, target)
             moved += 1
@@ -95,10 +106,11 @@ def download_nih():
 
 def download_chexpert():
     header("5/5  CheXpert (~224K chest X-rays, ~11 GB)")
+    print("  Large chest X-ray dataset — good scale boost for early-layer pretraining.")
     return kaggle_download("ashery/chexpert", DIRS["chexpert"], 200_000, "~11 GB")
 
 def download_fracatlas():
-    header("3/4  FracAtlas (~4K MSK X-rays — hands, legs, hips)")
+    header("MSK  FracAtlas processed (~4K MSK X-rays — hands, legs, hips)")
     return kaggle_download("tommyngx/fracatlas", DIRS["fracatlas"], 3_500, "~800 MB")
 
 def download_fracture_msk():
@@ -108,22 +120,38 @@ def download_fracture_msk():
         DIRS["fracture_msk"], 3_000, "~600 MB"
     )
 
+def download_grazpedwri():
+    header("MSK  GRAZPEDWRI-DX (~20K pediatric wrist X-rays)")
+    print("  Pediatric wrist trauma, PA + lateral views — directly overlaps with MURA wrist category.")
+    return kaggle_download("jasonroggy/grazpedwri-dx", DIRS["grazpedwri"], 18_000, "~3 GB")
+
+def download_knee_oa():
+    header("MSK  Knee OA Severity (~9.8K knee X-rays)")
+    print("  Lower extremity diversity — AP knee views graded by OA severity.")
+    return kaggle_download(
+        "shashwatwork/knee-osteoarthritis-dataset-with-severity",
+        DIRS["knee_oa"], 8_000, "~1.5 GB"
+    )
+
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 def print_summary():
     header("Dataset Summary")
-    verify_dataset("MURA v1.1 (MSK)",           DIRS["mura"],        36_000)
-    verify_dataset("RSNA Bone Age (MSK)",        DIRS["rsna"],        12_000)
-    verify_dataset("FracAtlas (MSK)",            DIRS["fracatlas"],    3_500)
-    verify_dataset("Fracture Multi-Region (MSK)",DIRS["fracture_msk"], 3_000)
-    verify_dataset("NIH ChestX-ray14 (CXR)",     DIRS["nih"],        100_000)
-    verify_dataset("Stanford Bone Age (MSK)",    DIRS["stanford"],    5_000)
+    verify_dataset("MURA v1.1 (MSK)",           DIRS["mura"],         36_000)
+    verify_dataset("RSNA Bone Age (MSK)",        DIRS["rsna"],         12_000)
+    verify_dataset("GRAZPEDWRI-DX (MSK)",        DIRS["grazpedwri"],   18_000)
+    verify_dataset("Knee OA (MSK)",              DIRS["knee_oa"],       8_000)
+    verify_dataset("FracAtlas processed (MSK)",  DIRS["fracatlas"],     3_500)
+    verify_dataset("Fracture Multi-Region (MSK)",DIRS["fracture_msk"],  3_000)
+    verify_dataset("Stanford Bone Age (MSK)",    DIRS["stanford"],      5_000)
+    verify_dataset("NIH ChestX-ray14 (CXR)",     DIRS["nih"],         100_000)
+    verify_dataset("CheXpert (CXR)",             DIRS["chexpert"],    200_000)
 
-    msk = (count_images(DIRS["mura"]) + count_images(DIRS["rsna"]) +
-           count_images(DIRS["fracatlas"]) + count_images(DIRS["fracture_msk"]) +
-           count_images(DIRS["stanford"]))
-    cxr = count_images(DIRS["nih"])
+    msk = sum(count_images(DIRS[k]) for k in
+              ["mura","rsna","grazpedwri","knee_oa","fracatlas",
+               "fracatlas_orig","fracture_msk","stanford"])
+    cxr = count_images(DIRS["nih"]) + count_images(DIRS["chexpert"])
 
     print(f"""
   MSK images (in-domain):  {msk:>8,}
@@ -150,14 +178,11 @@ def main():
 
     DATA_ROOT.mkdir(exist_ok=True)
 
-    if args.verify:
-        print_summary()
-        return
-
-
     download_rsna()
     download_fracatlas()
     download_fracture_msk()
+    download_grazpedwri()
+    download_knee_oa()
 
     if not args.skip_nih and not args.msk_only:
         download_nih()
