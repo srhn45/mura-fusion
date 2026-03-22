@@ -1,5 +1,5 @@
 '''
-uv run pretrain.py --msk-only
+uv run pretrain.py --msk-only --resume=models/pretrained/mae_checkpoint.pt
 '''
 
 import argparse, math, random
@@ -32,7 +32,7 @@ OUT_DIR    = Path("models/pretrained")
 # ── Dataset ────────────────────────────────────────────────────────────────────
 
 class XRayDataset(Dataset):
-    def __init__(self, roots, size=384, mura_normal_only=True):
+    def __init__(self, roots, size=384, mura_normal_only=True, augment=True):
         paths = []
         for root in roots:
             root = Path(root)
@@ -46,14 +46,25 @@ class XRayDataset(Dataset):
                     continue
                 paths.append(p)
         self.paths = paths
-        self.transform = T.Compose([
-            T.Grayscale(), T.Resize((size, size)), T.ToTensor(),
-            T.Normalize(mean=[0.449], std=[0.226])
-        ])
-        self.aug = T.Compose([
+        
+        if not augment:
+            self.target_aug = T.Compose([
+                T.Grayscale(), T.Resize((size, size)), T.ToTensor(),
+                T.Normalize(mean=[0.449], std=[0.226])
+            ])
+        else:
+            self.target_aug = T.Compose([
+                T.Grayscale(), T.Resize((size, size)),
+                T.RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+                T.ColorJitter(brightness=0.2, contrast=0.3),
+                T.RandomAdjustSharpness(2, p=0.5),
+                T.RandomAutocontrast(p=0.5),
+                T.ToTensor(),
+                T.Normalize(mean=[0.449], std=[0.226])
+            ])
+        self.strong_aug = T.Compose([
             T.Grayscale(), T.Resize((size, size)),
             T.RandomHorizontalFlip(p=0.5),
-            T.RandomVerticalFlip(p=0.2),
             T.RandomAffine(degrees=25, translate=(0.1, 0.1), scale=(0.8, 1.2)),
             T.RandomAdjustSharpness(2, p=0.4),
             T.RandomAutocontrast(p=0.4),
@@ -68,7 +79,7 @@ class XRayDataset(Dataset):
     def __getitem__(self, i):
         try:
             img = Image.open(self.paths[i]).convert("L")
-            return self.transform(img), self.aug(img)
+            return self.target_aug(img), self.strong_aug(img)
         except Exception:
             return self[random.randint(0, len(self) - 1)]
 
@@ -87,28 +98,24 @@ def mask_patches(x, patch_size=32, mask_ratio=0.75):
 # ── Decoder — intentionally weak to force encoder to carry detail ──────────────
 
 class MAEDecoder(nn.Module):
-    """
-    Minimal decoder: one bottleneck conv + bilinear upsample.
-    No spatial hierarchy — encoder must encode spatial structure itself.
-    """
     def __init__(self, in_channels, out_size):
         super().__init__()
-        self.proj    = nn.Conv2d(in_channels, 512, kernel_size=3, padding=1, bias=False)
+        self.proj    = nn.Conv2d(in_channels, 768, kernel_size=1, bias=False)
+        self.projx    = nn.Conv2d(768, 512, kernel_size=3, padding=1, bias=False)
         self.proj1    = nn.Conv2d(512, 256, kernel_size=3, padding=1, bias=False)
         self.proj2    = nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False)
-        self.out     = nn.Conv2d(128, 1, kernel_size=3, padding=1, bias=False)
+        self.proj3    = nn.Conv2d(128, 64, kernel_size=3, padding=1, bias=False)
+        self.out     = nn.Conv2d(64, 1, kernel_size=3, padding=1, bias=False)
         self.out_size = out_size
-        
-        self.up = nn.Upsample(scale_factor=2)
 
     def forward(self, x):
-        x = self.up(F.gelu(self.proj(x)))
-        x = self.up(F.gelu(self.proj1(x)))
-        x = self.up(F.gelu(self.proj2(x)))
-        x = self.up(F.gelu(self.proj3(x)))
-        
+        x = F.gelu(self.proj(x))
         x = F.interpolate(x, size=(self.out_size, self.out_size),
-                          mode="bilinear", align_corners=False)
+          mode="bilinear", align_corners=False)
+        x = F.gelu(self.projx(x))
+        x = F.gelu(self.proj1(x))
+        x = F.gelu(self.proj2(x))
+        x = F.gelu(self.proj3(x))
         return self.out(x)
 
 # ── LR schedule ────────────────────────────────────────────────────────────────
@@ -125,7 +132,7 @@ def denorm(t):
     return (t * 0.226 + 0.449).clamp(0, 1)
 
 @torch.no_grad()
-def save_recon_grid(model, dataset, patch_size, mask_ratio, epoch, out_dir, device, n=5):
+def save_recon_grid(model, dataset, patch_size, mask_ratio, epoch, num, out_dir, device, n=5):
     model.eval()
     imgs      = torch.stack([dataset[i][0] for i in random.sample(range(len(dataset)), n)]).to(device)
     masked, _ = mask_patches(imgs, patch_size, mask_ratio)
@@ -149,7 +156,7 @@ def save_recon_grid(model, dataset, patch_size, mask_ratio, epoch, out_dir, devi
             if col == 0: ax.set_ylabel(label, color="#94a3b8", fontsize=9)
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    path = out_dir / f"recon_epoch_{epoch:04d}.png"
+    path = out_dir / f"recon_epoch_{epoch:04d}_{num:05d}.png"
     plt.savefig(path, dpi=120, bbox_inches="tight", facecolor="#0f1117")
     plt.close()
     return path
@@ -162,8 +169,8 @@ def main():
     parser.add_argument("--size",        type=int,   default=384)
     parser.add_argument("--patch-size",  type=int,   default=32)
     parser.add_argument("--mask-ratio",  type=float, default=0.75)
-    parser.add_argument("--epochs",      type=int,   default=2)
-    parser.add_argument("--batch-size",  type=int,   default=16)
+    parser.add_argument("--epochs",      type=int,   default=10)
+    parser.add_argument("--batch-size",  type=int,   default=8)
     parser.add_argument("--lr",          type=float, default=1e-4)
     parser.add_argument("--consist-lam", type=float, default=0.05,
                         help="Weight for augmentation consistency loss")
@@ -200,6 +207,8 @@ def main():
     loader  = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
                          num_workers=args.workers, pin_memory=True, drop_last=True)
     log(f"  {len(dataset):,} images  →  {len(loader):,} batches/epoch")
+    
+    dataset_vis = dataset = XRayDataset(roots, args.size, augment=False)
 
     # ── encoder ───────────────────────────────────────────────────────────────
     encoder = timm.create_model(args.backbone, pretrained=True, num_classes=0, global_pool="")
@@ -315,7 +324,7 @@ def main():
                     "backbone": args.backbone,
                 }, OUT_DIR / "mae_checkpoint.pt")
 
-                grid_path = save_recon_grid(model, dataset, args.patch_size,
+                grid_path = save_recon_grid(model, dataset_vis, args.patch_size,
                                             args.mask_ratio, epoch, n_batches, viz_dir, device)
                 log(f"  ↳ recon grid -> {grid_path}")
                 model.train()
