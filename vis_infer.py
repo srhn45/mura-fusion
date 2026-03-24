@@ -33,12 +33,6 @@ from helpers.augments import make_transform
 # ── Backbone forward: return spatial attention weights ─────────────────────────
 
 def backbone_forward_with_attn(backbone_module, x):
-    """
-    Runs the backbone and returns:
-      out             (N, embed_dim)
-      feats           (N, C, H, W)  — raw feature map, kept for GradCAM
-      spatial_weights (N, H, W)     — gated MIL softmax weights
-    """
     feats   = backbone_module.backbone(x)                      # (N, C, H, W)
     H, W    = feats.shape[2], feats.shape[3]
     spatial = feats.flatten(2).transpose(1, 2)                 # (N, H*W, C)
@@ -54,13 +48,6 @@ def backbone_forward_with_attn(backbone_module, x):
 
 
 def classifier_forward_with_attn(model, image_list, categories):
-    """
-    Returns:
-      logits               (B,)
-      cross_weights        list of (N,)      softmaxed per-image fusion weights
-      spatial_weights_list list of (N, H, W) gated MIL attention maps
-      feats_list           list of (N, C, H, W) raw feature maps for GradCAM
-    """
     logits, cross_weights, spatial_weights_list, feats_list = [], [], [], []
 
     for images, category in zip(image_list, categories):
@@ -87,11 +74,6 @@ def classifier_forward_with_attn(model, image_list, categories):
 # ── GradCAM ────────────────────────────────────────────────────────────────────
 
 def compute_gradcam(model, category, feats):
-    """
-    Computes GradCAM for each image in the study w.r.t. the classification logit.
-    feats: (N, C, H, W) on device — feature maps from backbone forward pass.
-    Returns: (N, H, W) cpu, values in [0, 1].
-    """
     feats_g = feats.detach().requires_grad_(True)
     H, W    = feats_g.shape[2], feats_g.shape[3]
 

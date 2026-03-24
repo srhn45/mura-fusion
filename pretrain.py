@@ -1,5 +1,6 @@
 '''
 uv run pretrain.py --msk-only --resume=models/pretrained/mae_checkpoint.pt
+PYTORCH_ALLOC_CONF=expandable_segments:True uv run pretrain.py --msk-only --resume=models/pretrained/mae_checkpoint.pt
 '''
 
 import argparse, math, random
@@ -169,7 +170,7 @@ def main():
     parser.add_argument("--size",        type=int,   default=384)
     parser.add_argument("--patch-size",  type=int,   default=32)
     parser.add_argument("--mask-ratio",  type=float, default=0.75)
-    parser.add_argument("--epochs",      type=int,   default=10)
+    parser.add_argument("--epochs",      type=int,   default=20)
     parser.add_argument("--batch-size",  type=int,   default=8)
     parser.add_argument("--lr",          type=float, default=1e-4)
     parser.add_argument("--consist-lam", type=float, default=0.05,
