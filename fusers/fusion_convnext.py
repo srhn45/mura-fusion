@@ -1,3 +1,7 @@
+'''
+PYTORCH_ALLOC_CONF=expandable_segments:True uv run fusion_convnext.py
+'''
+
 import signal, sys
 def cleanup(sig, frame):
     print("\nCleaning up...")
@@ -28,7 +32,8 @@ warnings.filterwarnings("ignore", message="Not enough SMs")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-PRETRAINED_ENCODER = "../models/pretrained/mae_encoder_convnext_large.pt"
+#PRETRAINED_ENCODER = "../models/pretrained/mae_encoder_convnext_large.pt"
+PRETRAINED_ENCODER = None
 # set to None to skip
 
 CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
