@@ -37,7 +37,7 @@ CATEGORIES = ["XR_SHOULDER", "XR_HUMERUS", "XR_ELBOW",
 DATA_DIR          = "../data/MURA-v1.1"
 PARENT_DIR        = "../data"
 CHECKPOINT        = "../models/convnext_l/best_model_convnext_l.pt"
-BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="stage0", dropout=0.1, finetune_input=True)
+BACKBONE_KWARGS   = dict(embed_dim=256, freeze_until="stage0", dropout=0.1, finetune_input=True, tiled=True)
 CLASSIFIER_KWARGS = dict(embed_dim=256, mlp_depth=2, categories=CATEGORIES)
 FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patience=3, unfreeze_lr_scale=0.1)
 
@@ -47,11 +47,11 @@ FIT_KWARGS        = dict(n_epochs=50, lr=1e-5, pos_weight=1.47, unfreeze_patienc
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 train_loader = make_loader(load_df("train_image_paths.csv", DATA_DIR), augment=True,
-                           parent_dir=PARENT_DIR, size=384, batch_size=10,
+                           parent_dir=PARENT_DIR, size=384*2, batch_size=8,
                            shuffle=True, num_workers=2, pin_memory=True,
                            drop_last=True, persistent_workers=False)
 val_loader   = make_loader(load_df("valid_image_paths.csv", DATA_DIR), augment=False,
-                           parent_dir=PARENT_DIR, size=384, batch_size=10,
+                           parent_dir=PARENT_DIR, size=384*2, batch_size=8,
                            shuffle=False, num_workers=2, pin_memory=True,
                            persistent_workers=False)
 
