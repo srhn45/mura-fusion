@@ -20,7 +20,7 @@ sys.path.insert(0, '..')
 import torch
 import warnings
 from architectures.convnext_l import ConvNeXt_L_Backbone
-from architectures.classifier import Classifier
+from architectures.classifier_separate import Classifier
 from helpers.patientdataset import load_df, make_loader
 from helpers.checkpoint import save_checkpoint, load_checkpoint
 from helpers.trainer import fit

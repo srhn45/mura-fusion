@@ -20,7 +20,18 @@ class Classifier(nn.Module):
         self.inter_ln = nn.ModuleDict({
             cat: RMSNorm(embed_dim) for cat in categories
         })
-        self.weight_head = nn.ModuleDict({
+        
+        #self.weight_head = nn.ModuleDict({
+        #    cat: nn.Linear(embed_dim, 1) for cat in categories
+        #})                                                         ## linear scoring
+        
+        self.attn_V = nn.ModuleDict({
+            cat: nn.Linear(embed_dim, embed_dim) for cat in categories
+        })
+        self.attn_U = nn.ModuleDict({
+            cat: nn.Linear(embed_dim, embed_dim) for cat in categories
+        })
+        self.attn_w = nn.ModuleDict({
             cat: nn.Linear(embed_dim, 1) for cat in categories
         })
         
@@ -42,7 +53,13 @@ class Classifier(nn.Module):
             attended, _ = self.inter_attn[category](seq, seq, seq)
             attended = self.inter_ln[category](attended.squeeze(0))  # (N, embed_dim)
 
-            weights = F.softmax(self.weight_head[category](attended), dim=0)  # (N, 1), separate head setup
+            V = torch.tanh(self.attn_V[category](attended))     # (N, D)
+            U = torch.sigmoid(self.attn_U[category](attended))  # (N, D)
+            gated = V * U                                       # (N, D)
+
+            scores = self.attn_w[category](gated)               # (N, 1)
+            weights = F.softmax(scores, dim=0)
+            
             fused   = (weights * embeds).sum(dim=0, keepdim=True)             # (1, embed_dim)
 
             logit = self.classifiers[category](fused).squeeze()
